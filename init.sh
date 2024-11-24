@@ -25,13 +25,6 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Создание .env файла если его нет
-if [ ! -f ".env" ]; then
-    echo "Создание .env файла..."
-    cp .env.example .env
-    echo "Пожалуйста, заполните данные в файле .env"
-fi
-
 # Создание директории для логов
 echo "Создание директории для логов..."
 sudo mkdir -p /var/log/sales_bot
@@ -39,5 +32,5 @@ sudo chown $USER:$USER /var/log/sales_bot
 
 echo "Инициализация завершена!"
 echo "Для запуска бота:"
-echo "1. Заполните данные в файле .env"
+echo "1. Установите необходимые переменные окружения"
 echo "2. Запустите ./run.sh"

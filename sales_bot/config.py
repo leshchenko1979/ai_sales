@@ -3,13 +3,15 @@ import os
 def get_env_or_fail(key: str) -> str:
     value = os.getenv(key)
     if value is None:
-        raise ValueError(f"Environment variable {key} is not set!")
+        raise ValueError(f"Environment variable {key} is not set")
     return value
 
+# Pyrogram settings
+API_ID = int(get_env_or_fail("API_ID"))
+API_HASH = get_env_or_fail("API_HASH")
+BOT_TOKEN = get_env_or_fail("BOT_TOKEN")
+
 # Bot settings
-BOT_TOKEN = get_env_or_fail('BOT_TOKEN')
-API_ID = int(get_env_or_fail('API_ID'))
-API_HASH = get_env_or_fail('API_HASH')
 ADMIN_TELEGRAM_ID = int(get_env_or_fail('ADMIN_TELEGRAM_ID'))
 
 # OpenRouter settings

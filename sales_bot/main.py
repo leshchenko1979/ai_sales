@@ -1,33 +1,39 @@
 import logging
 import asyncio
-from config import LOG_LEVEL, LOG_FILE
-from bot.client import client
+from config import LOG_LEVEL, LOG_FILE, API_ID, API_HASH, BOT_TOKEN
 from utils.logging import setup_logging
+from pyrogram import Client, filters
 
-# Импортируем обработчики для их регистрации
+# Import handlers
 from bot import commands, dialogs
 
+# Initialize the client
+app = Client(
+    "sales_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
+@app.on_message(filters.command("start"))
+async def start_command(client, message):
+    await message.reply_text("Hello! I'm your sales bot.")
+
+# Add other handlers here...
+
 def main():
-    # Настраиваем логирование
+    # Setup logging
     setup_logging()
     logger = logging.getLogger(__name__)
 
     logger.info("Starting Sales Bot...")
 
-    # Получаем текущий event loop
-    loop = asyncio.get_event_loop()
-
     try:
-        # Запускаем клиента
-        loop.run_until_complete(client.start())
+        # Start the client
+        app.run()
         logger.info("Bot started successfully")
-
-        # Запускаем бота
-        loop.run_until_complete(client.run_until_disconnected())
     except Exception as e:
         logger.error(f"Error running bot: {e}")
-    finally:
-        loop.close()
 
 if __name__ == '__main__':
     main()

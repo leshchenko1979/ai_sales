@@ -68,19 +68,25 @@ B -->|CRUD| E[База данных]
 ```
 
 ## Конфигурация
-```python
-# config.py
-ADMIN_TELEGRAM_ID = 123456789  # ID администратора в Telegram
-BOT_TOKEN = "your_bot_token"
-OPENAI_API_KEY = "your_openai_key"
 
-# Настройки приложения
-LOG_FILE = "/var/log/sales_bot/app.log"
-POLLING_TIMEOUT = 30  # секунды
+Конфигурация осуществляется через переменные окружения:
 
-# Промпты хранятся в коде для MVP
-INITIAL_PROMPT = """..."""
-RESPONSE_PROMPT = """..."""
+```bash
+# Telegram settings
+export API_ID=123456
+export API_HASH="your_api_hash"
+export BOT_TOKEN="your_bot_token"
+export ADMIN_TELEGRAM_ID=123456789
+
+# OpenRouter settings
+export OPENROUTER_API_KEY="your_openrouter_key"
+
+# Database settings (optional, has default)
+export DATABASE_URL="postgresql://user:pass@localhost:5432/sales_bot"
+
+# Logging settings (optional, have defaults)
+export LOG_LEVEL="INFO"
+export LOG_FILE="/var/log/sales_bot/app.log"
 ```
 
 ## Systemd сервис
