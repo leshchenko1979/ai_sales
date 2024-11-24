@@ -10,20 +10,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup deployment files
-        run: |
-          ls -la
-
-          # Create .env file
-          cat << EOF > sales_bot/.env
-          BOT_TOKEN=${{ secrets.ENV_BOT_TOKEN }}
-          API_ID=${{ secrets.ENV_API_ID }}
-          API_HASH=${{ secrets.ENV_API_HASH }}
-          ADMIN_TELEGRAM_ID=${{ secrets.ENV_ADMIN_TELEGRAM_ID }}
-          OPENAI_API_KEY=${{ secrets.ENV_OPENAI_API_KEY }}
-          DATABASE_URL=${{ secrets.ENV_DATABASE_URL }}
-          EOF
-
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
@@ -69,6 +55,20 @@ jobs:
             sudo -u sales_bot python3 -m venv venv &&
             sudo -u sales_bot venv/bin/pip install -r requirements.txt'
 
+      - name: Configure environment
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo -u sales_bot tee /home/sales_bot/sales_bot/.env << EOF
+          BOT_TOKEN=${{ secrets.ENV_BOT_TOKEN }}
+          API_ID=${{ secrets.ENV_API_ID }}
+          API_HASH=${{ secrets.ENV_API_HASH }}
+          ADMIN_TELEGRAM_ID=${{ secrets.ENV_ADMIN_TELEGRAM_ID }}
+          OPENAI_API_KEY=${{ secrets.ENV_OPENAI_API_KEY }}
+          DATABASE_URL=${{ secrets.ENV_DATABASE_URL }}
+          EOF'
+
       - name: Configure systemd service
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -82,7 +82,7 @@ jobs:
           [Service]
           Type=simple
           User=sales_bot
-          WorkingDirectory=/home/sales_bot
+          WorkingDirectory=/home/sales_bot/sales_bot
           ExecStart=/home/sales_bot/venv/bin/python main.py
           StandardOutput=append:/var/log/sales_bot/app.log
           StandardError=append:/var/log/sales_bot/error.log
