@@ -10,18 +10,6 @@ from scheduler import AccountScheduler
 logger = logging.getLogger(__name__)
 
 
-def run():
-    """Entry point with proper loop handling"""
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        logger.info("Received shutdown signal")
-    finally:
-        loop.close()
-
-
 async def main():
     """Main application entry point"""
     try:
@@ -56,4 +44,4 @@ async def initialize_services():
 
 
 if __name__ == "__main__":
-    run()
+    asyncio.run(main())
