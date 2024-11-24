@@ -36,7 +36,9 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           # Deploy files
+          ls -la
           rsync -avz --delete ./sales_bot $DEPLOY_USER@$DEPLOY_HOST:~/
+          rsync -avz --delete ./requirements.txt $DEPLOY_USER@$DEPLOY_HOST:~/sales_bot/
 
           # Setup environment
           ssh $DEPLOY_USER@$DEPLOY_HOST '
