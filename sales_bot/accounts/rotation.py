@@ -42,7 +42,7 @@ class AccountRotator:
             return stats
 
         except Exception as e:
-            logger.error(f"Error in rotate_accounts: {e}")
+            logger.error(f"Error in rotate_accounts: {e}", exc_info=True)
             stats["errors"] += 1
             return stats
 
@@ -72,7 +72,9 @@ class AccountRotator:
                     logger.info(f"Enabled account {account.phone}")
 
             except Exception as e:
-                logger.error(f"Error enabling account {account.phone}: {e}")
+                logger.error(
+                    f"Error enabling account {account.phone}: {e}", exc_info=True
+                )
 
         return enabled_accounts
 
@@ -109,7 +111,9 @@ class AccountRotator:
                     logger.info(f"Disabled account {account.phone}: {reason}")
 
             except Exception as e:
-                logger.error(f"Error disabling account {account.phone}: {e}")
+                logger.error(
+                    f"Error disabling account {account.phone}: {e}", exc_info=True
+                )
 
         return disabled_accounts
 

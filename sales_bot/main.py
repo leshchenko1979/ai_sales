@@ -24,7 +24,7 @@ async def main():
         logger.info("Bot stopped")
 
     except Exception as e:
-        logger.error(f"Error in main: {e}")
+        logger.error(f"Error in main: {e}", exc_info=True)
         raise
 
 

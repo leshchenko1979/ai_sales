@@ -43,7 +43,7 @@ async def start_command(client, message):
         logger.info(f"Started dialog {dialog_id} with @{username}")
 
     except Exception as e:
-        logger.error(f"Error in start_command: {e}")
+        logger.error(f"Error in start_command: {e}", exc_info=True)
         await message.reply_text("Произошла ошибка при создании диалога.")
 
 
@@ -75,7 +75,7 @@ async def stop_command(client, message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in stop_command: {e}")
+        logger.error(f"Error in stop_command: {e}", exc_info=True)
         await message.reply_text("Произошла ошибка при остановке диалога.")
 
 
@@ -103,7 +103,7 @@ async def list_command(client, message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in list_command: {e}")
+        logger.error(f"Error in list_command: {e}", exc_info=True)
         await message.reply_text("Произошла ошибка при получении списка диалогов.")
 
 
@@ -145,7 +145,7 @@ async def view_command(client, message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in view_command: {e}")
+        logger.error(f"Error in view_command: {e}", exc_info=True)
         await message.reply_text("Произошла ошибка при просмотре диалога.")
 
 
@@ -171,7 +171,7 @@ async def export_command(client, message):
             await message.reply_text("Диалог не найден или пуст.")
 
     except Exception as e:
-        logger.error(f"Error in export_command: {e}")
+        logger.error(f"Error in export_command: {e}", exc_info=True)
         await message.reply_text("Произошла ошибка при экспорте диалога.")
 
 
@@ -191,7 +191,7 @@ async def export_all_command(client, message):
             await message.reply_text("Нет диалогов для экспорта.")
 
     except Exception as e:
-        logger.error(f"Error in export_all_command: {e}")
+        logger.error(f"Error in export_all_command: {e}", exc_info=True)
         await message.reply_text("Произошла ошибка при экспорте диалогов.")
 
 
@@ -222,7 +222,7 @@ async def help_command(client, message):
         logger.info("Help command executed")
 
     except Exception as e:
-        logger.error(f"Error in help_command: {e}")
+        logger.error(f"Error in help_command: {e}", exc_info=True)
         await message.reply_text("Произошла ошибка при выводе справки.")
 
 
@@ -271,7 +271,7 @@ async def cmd_add_account(client: Client, message: Message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in cmd_add_account: {e}")
+        logger.error(f"Error in cmd_add_account: {e}", exc_info=True)
         await message.reply("Произошла ошибка при добавлении аккаунта.")
 
 
@@ -307,7 +307,7 @@ async def cmd_authorize(client: Client, message: Message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in cmd_authorize: {e}")
+        logger.error(f"Error in cmd_authorize: {e}", exc_info=True)
         await message.reply("Произошла ошибка при авторизации аккаунта.")
 
 
@@ -343,7 +343,7 @@ async def cmd_list_accounts(client: Client, message: Message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in cmd_list_accounts: {e}")
+        logger.error(f"Error in cmd_list_accounts: {e}", exc_info=True)
         await message.reply("Произошла ошибка при получении списка аккаунтов.")
 
 
@@ -381,7 +381,7 @@ async def cmd_disable_account(client: Client, message: Message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in cmd_disable_account: {e}")
+        logger.error(f"Error in cmd_disable_account: {e}", exc_info=True)
         await message.reply("Произошла ошибка при отключении аккаунта.")
 
 
@@ -423,7 +423,7 @@ async def cmd_check_account(client: Client, message: Message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in cmd_check_account: {e}")
+        logger.error(f"Error in cmd_check_account: {e}", exc_info=True)
         await message.reply("Произошла ошибка при проверке аккаунта.")
 
 
@@ -448,7 +448,7 @@ async def cmd_check_all_accounts(client: Client, message: Message):
             db.close()
 
     except Exception as e:
-        logger.error(f"Error in cmd_check_all_accounts: {e}")
+        logger.error(f"Error in cmd_check_all_accounts: {e}", exc_info=True)
         await message.reply("Произошла ошибка при проверке аккаунтов.")
 
 

@@ -55,7 +55,7 @@ async def make_request(messages: list) -> str:
                 return result["choices"][0]["message"]["content"]
 
     except Exception as e:
-        logger.error(f"Error making request to OpenRouter: {e}")
+        logger.error(f"Error making request to OpenRouter: {e}", exc_info=True)
         raise
 
 
@@ -72,7 +72,7 @@ async def generate_initial_message() -> str:
 
         return await make_request(messages)
     except Exception as e:
-        logger.error(f"Error generating initial message: {e}")
+        logger.error(f"Error generating initial message: {e}", exc_info=True)
         return "Здравствуйте! Я представляю инвестиционную компанию. Могу я задать вам несколько вопросов?"
 
 
@@ -99,7 +99,7 @@ async def generate_response(dialog_history: list, last_message: str) -> str:
 
         return await make_request(messages)
     except Exception as e:
-        logger.error(f"Error generating response: {e}")
+        logger.error(f"Error generating response: {e}", exc_info=True)
         return "Извините, произошла техническая ошибка. Давайте продолжим позже."
 
 
@@ -142,5 +142,5 @@ REASON: причина"""
 
         return qualified, reason
     except Exception as e:
-        logger.error(f"Error checking qualification: {e}")
+        logger.error(f"Error checking qualification: {e}", exc_info=True)
         return False, "Ошибка при проверке квалификации"

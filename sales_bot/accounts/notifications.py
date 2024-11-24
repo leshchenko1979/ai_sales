@@ -94,4 +94,4 @@ class AccountNotifier:
         try:
             await app.send_message(self.admin_id, message)
         except Exception as e:
-            logger.error(f"Failed to send notification: {e}")
+            logger.error(f"Failed to send notification: {e}", exc_info=True)

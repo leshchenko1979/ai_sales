@@ -54,7 +54,7 @@ async def export_dialog(dialog_id: int) -> str:
             db.close()
 
     except Exception as e:
-        logger.error(f"Error exporting dialog {dialog_id}: {e}")
+        logger.error(f"Error exporting dialog {dialog_id}: {e}", exc_info=True)
         return None
 
 
@@ -96,5 +96,5 @@ async def export_all_dialogs() -> str:
             db.close()
 
     except Exception as e:
-        logger.error(f"Error exporting all dialogs: {e}")
+        logger.error(f"Error exporting all dialogs: {e}", exc_info=True)
         return None

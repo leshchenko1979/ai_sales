@@ -50,7 +50,9 @@ class AccountWarmup:
                 await client.disconnect()
 
         except Exception as e:
-            logger.error(f"Error warming up account {account.phone}: {e}")
+            logger.error(
+                f"Error warming up account {account.phone}: {e}", exc_info=True
+            )
             return False
 
     async def warmup_new_accounts(self) -> dict:
@@ -69,7 +71,9 @@ class AccountWarmup:
                     else:
                         stats["failed"] += 1
                 except Exception as e:
-                    logger.error(f"Failed to warmup account {account.phone}: {e}")
+                    logger.error(
+                        f"Failed to warmup account {account.phone}: {e}", exc_info=True
+                    )
                     stats["failed"] += 1
 
             # Send report
@@ -77,7 +81,7 @@ class AccountWarmup:
             return stats
 
         except Exception as e:
-            logger.error(f"Error during warmup: {e}")
+            logger.error(f"Error during warmup: {e}", exc_info=True)
             return stats
 
     async def _join_channels(self, client: AccountClient) -> bool:
@@ -98,7 +102,7 @@ class AccountWarmup:
                 await asyncio.sleep(random.randint(60, 180))
             return True
         except Exception as e:
-            logger.error(f"Error joining channels: {e}")
+            logger.error(f"Error joining channels: {e}", exc_info=True)
             return False
 
     async def _update_profile(self, client: AccountClient) -> bool:
@@ -122,7 +126,7 @@ class AccountWarmup:
             )
             return True
         except Exception as e:
-            logger.error(f"Error updating profile: {e}")
+            logger.error(f"Error updating profile: {e}", exc_info=True)
             return False
 
     async def _send_messages_to_self(self, client: AccountClient) -> bool:
@@ -143,7 +147,7 @@ class AccountWarmup:
                 await asyncio.sleep(random.randint(30, 90))
             return True
         except Exception as e:
-            logger.error(f"Error sending self messages: {e}")
+            logger.error(f"Error sending self messages: {e}", exc_info=True)
             return False
 
     async def _read_channels(self, client: AccountClient) -> bool:
@@ -163,7 +167,7 @@ class AccountWarmup:
                     break  # Читаем только один случайный канал
             return True
         except Exception as e:
-            logger.error(f"Error reading channels: {e}")
+            logger.error(f"Error reading channels: {e}", exc_info=True)
             return False
 
     async def _notify_warmup_results(self, stats: dict):

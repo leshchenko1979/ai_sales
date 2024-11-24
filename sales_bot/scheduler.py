@@ -74,7 +74,7 @@ class AccountScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in periodic check: {e}")
+                logger.error(f"Error in periodic check: {e}", exc_info=True)
                 await asyncio.sleep(60)  # Wait a bit before retry
 
     async def _run_daily_reset(self):
@@ -108,7 +108,7 @@ class AccountScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in daily reset: {e}")
+                logger.error(f"Error in daily reset: {e}", exc_info=True)
                 await asyncio.sleep(60)  # Wait a bit before retry
 
     async def _run_account_rotation(self):
@@ -126,7 +126,7 @@ class AccountScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in account rotation: {e}")
+                logger.error(f"Error in account rotation: {e}", exc_info=True)
                 await asyncio.sleep(60)  # Wait a bit before retry
 
     async def _run_account_warmup(self):
@@ -144,7 +144,7 @@ class AccountScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in account warmup: {e}")
+                logger.error(f"Error in account warmup: {e}", exc_info=True)
                 await asyncio.sleep(60)  # Wait a bit before retry
 
     async def reset_daily_limits(self):
@@ -155,7 +155,7 @@ class AccountScheduler:
                 await account_queries.reset_daily_messages()
                 logger.info("Daily message limits reset")
         except Exception as e:
-            logger.error(f"Failed to reset daily limits: {e}")
+            logger.error(f"Failed to reset daily limits: {e}", exc_info=True)
 
     async def perform_warmup(self):
         """Perform account warmup"""
@@ -165,4 +165,4 @@ class AccountScheduler:
                 await account_queries.get_accounts_for_warmup()
                 # Rest of warmup logic...
         except Exception as e:
-            logger.error(f"Failed to perform warmup: {e}")
+            logger.error(f"Failed to perform warmup: {e}", exc_info=True)

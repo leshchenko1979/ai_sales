@@ -36,7 +36,7 @@ class AccountManager:
             return account
 
         except Exception as e:
-            logger.error(f"Failed to add account {phone}: {e}")
+            logger.error(f"Failed to add account {phone}: {e}", exc_info=True)
             return None
 
     async def authorize_account(self, phone: str, code: str) -> bool:
@@ -59,7 +59,7 @@ class AccountManager:
             return await self.queries.update_session(account.id, session_string)
 
         except Exception as e:
-            logger.error(f"Failed to authorize account {phone}: {e}")
+            logger.error(f"Failed to authorize account {phone}: {e}", exc_info=True)
             return False
 
     async def get_available_account(self) -> Optional[Account]:
@@ -97,7 +97,9 @@ class AccountManager:
             return success
 
         except Exception as e:
-            logger.error(f"Failed to send message from {account.phone}: {e}")
+            logger.error(
+                f"Failed to send message from {account.phone}: {e}", exc_info=True
+            )
             return False
 
     async def update_account_status(self, phone: str, status: AccountStatus):
@@ -105,4 +107,6 @@ class AccountManager:
         try:
             await self.queries.update_account_status(phone, status)
         except Exception as e:
-            logger.error(f"Failed to update account status for {phone}: {e}")
+            logger.error(
+                f"Failed to update account status for {phone}: {e}", exc_info=True
+            )

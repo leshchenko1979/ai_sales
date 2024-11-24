@@ -113,7 +113,7 @@ async def message_handler(client, message):
                 logger.error(f"Failed to send message in dialog {dialog.id}")
 
     except Exception as e:
-        logger.error(f"Error in message_handler: {e}")
+        logger.error(f"Error in message_handler: {e}", exc_info=True)
         await message.reply_text(
             "Извините, произошла техническая ошибка. Пожалуйста, попробуйте позже."
         )
@@ -144,7 +144,7 @@ async def start_dialog_with_user(username: str) -> bool:
                 account, username, initial_message
             )
             if not success:
-                logger.error(f"Could not send message to @{username}")
+                logger.error(f"Could not send message to @{username}", exc_info=True)
                 return False
 
             # Создаем новый диалог
@@ -161,5 +161,5 @@ async def start_dialog_with_user(username: str) -> bool:
             return True
 
     except Exception as e:
-        logger.error(f"Error starting dialog with @{username}: {e}")
+        logger.error(f"Error starting dialog with @{username}: {e}", exc_info=True)
         return False
