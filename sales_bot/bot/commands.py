@@ -108,8 +108,11 @@ async def view_command(client, message):
             return
 
         dialog_id = int(args[1])
-        async for db in get_db():
-            messages = db.query(Message).filter(Message.dialog_id == dialog_id).order_by(Message.timestamp).all()
+        db = await get_db()
+        try:
+            messages = db.query(Message).filter(
+                Message.dialog_id == dialog_id
+            ).order_by(Message.timestamp).all()
 
             if not messages:
                 await message.reply_text(f"Сообщения для диалога {dialog_id} не найдены.")
@@ -121,6 +124,8 @@ async def view_command(client, message):
                 response += f"{direction} {msg.content}\n"
 
             await message.reply_text(response)
+        finally:
+            db.close()
 
     except Exception as e:
         logger.error(f"Error in view_command: {e}")
