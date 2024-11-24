@@ -33,6 +33,13 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Create sales_bot user and set up directories
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo useradd -m -s /bin/bash sales_bot || true'
+
       - name: Deploy application
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -42,7 +49,14 @@ jobs:
             --exclude '.git' \
             --exclude 'venv' \
             --exclude '__pycache__' \
-            ./ $DEPLOY_USER@$DEPLOY_HOST:~/sales_bot/
+            ./ $DEPLOY_USER@$DEPLOY_HOST:/home/sales_bot/sales_bot/
+
+      - name: Set permissions
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo chown -R sales_bot:sales_bot /home/sales_bot/sales_bot'
 
       - name: Create and configure systemd service
         env:
@@ -66,16 +80,21 @@ jobs:
           WantedBy=multi-user.target
           EOF'
 
-      - name: Update and restart service
+      - name: Set up Python environment
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh $DEPLOY_USER@$DEPLOY_HOST 'cd ~/sales_bot && \
-          python3 -m venv venv && \
-          source venv/bin/activate && \
-          pip install -r requirements.txt && \
-          sudo systemctl daemon-reload && \
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'cd /home/sales_bot/sales_bot && \
+          sudo -u sales_bot python3 -m venv venv && \
+          sudo -u sales_bot venv/bin/pip install -r requirements.txt'
+
+      - name: Restart service
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo systemctl daemon-reload && \
           sudo systemctl enable sales_bot && \
           sudo systemctl restart sales_bot'
 
