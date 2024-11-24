@@ -18,7 +18,8 @@ async def export_dialog(dialog_id: int) -> str:
     try:
         ensure_export_dir()
 
-        async for db in get_db():
+        db = await get_db()
+        try:
             dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
             if not dialog:
                 return None
@@ -43,6 +44,8 @@ async def export_dialog(dialog_id: int) -> str:
                     f.write(f"[{msg.timestamp}] {direction} {msg.content}\n")
 
             return file_path
+        finally:
+            db.close()
 
     except Exception as e:
         logger.error(f"Error exporting dialog {dialog_id}: {e}")
@@ -53,7 +56,8 @@ async def export_all_dialogs() -> str:
     try:
         ensure_export_dir()
 
-        async for db in get_db():
+        db = await get_db()
+        try:
             dialogs = db.query(Dialog).all()
             if not dialogs:
                 return None
@@ -78,6 +82,8 @@ async def export_all_dialogs() -> str:
                     f.write("\n" + "="*50 + "\n")
 
             return file_path
+        finally:
+            db.close()
 
     except Exception as e:
         logger.error(f"Error exporting all dialogs: {e}")
