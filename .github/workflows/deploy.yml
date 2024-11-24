@@ -37,13 +37,13 @@ jobs:
           # Deploy files
           rsync -avz --delete ./sales_bot $DEPLOY_USER@$DEPLOY_HOST:~/
           rsync -avz --delete requirements.txt $DEPLOY_USER@$DEPLOY_HOST:~/sales_bot/
+
           ssh $DEPLOY_USER@$DEPLOY_HOST 'ls -la /home/sales_bot'
           # Setup environment
           ssh $DEPLOY_USER@$DEPLOY_HOST '
             sudo useradd -m -s /bin/bash sales_bot || true &&
             sudo mkdir -p /var/log/sales_bot &&
             sudo chown -R sales_bot:sales_bot /var/log/sales_bot ~/sales_bot &&
-            ls -la &&
             cd ~/sales_bot &&
             ls -la &&
             sudo -u sales_bot python3 -m venv venv &&
