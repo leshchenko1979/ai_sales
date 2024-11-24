@@ -10,9 +10,18 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Create project structure
+        run: |
+          mkdir -p sales_bot/{bot,db,utils}
+          touch sales_bot/config.py
+          touch sales_bot/main.py
+          touch sales_bot/bot/{__init__.py,commands.py,dialogs.py,gpt.py}
+          touch sales_bot/db/{__init__.py,models.py,queries.py}
+          touch sales_bot/utils/{__init__.py,export.py,logging.py}
+
       - name: Create .env file
         run: |
-          cat << EOF > .env
+          cat << EOF > sales_bot/.env
           # Telegram Bot settings
           BOT_TOKEN=${{ secrets.BOT_TOKEN }}
           API_ID=${{ secrets.API_ID }}
@@ -33,7 +42,7 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Create sales_bot user and directories
+      - name: Create directories and set permissions
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -41,7 +50,7 @@ jobs:
           ssh $DEPLOY_USER@$DEPLOY_HOST '
           sudo useradd -m -s /bin/bash sales_bot || true
           sudo mkdir -p /var/log/sales_bot
-          sudo chown sales_bot:sales_bot /var/log/sales_bot'
+          sudo chown -R sales_bot:sales_bot /var/log/sales_bot'
 
       - name: Deploy application
         env:
@@ -52,7 +61,7 @@ jobs:
             --exclude '.git' \
             --exclude 'venv' \
             --exclude '__pycache__' \
-            ./ $DEPLOY_USER@$DEPLOY_HOST:/home/sales_bot/sales_bot/
+            ./sales_bot/ $DEPLOY_USER@$DEPLOY_HOST:/home/sales_bot/sales_bot/
 
       - name: Set up Python environment
         env:
@@ -60,8 +69,8 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           ssh $DEPLOY_USER@$DEPLOY_HOST '
-          cd /home/sales_bot/sales_bot
-          sudo -u sales_bot python3 -m venv venv
+          cd /home/sales_bot/sales_bot && \
+          sudo -u sales_bot python3 -m venv venv && \
           sudo -u sales_bot venv/bin/pip install -r requirements.txt'
 
       - name: Configure service
@@ -80,7 +89,7 @@ jobs:
           Group=sales_bot
           WorkingDirectory=/home/sales_bot/sales_bot
           Environment=PYTHONUNBUFFERED=1
-          ExecStart=/home/sales_bot/sales_bot/venv/bin/python -u main.py
+          ExecStart=/home/sales_bot/sales_bot/venv/bin/python main.py
           StandardOutput=append:/var/log/sales_bot/app.log
           StandardError=append:/var/log/sales_bot/error.log
           Restart=always
