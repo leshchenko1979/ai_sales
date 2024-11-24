@@ -1,5 +1,6 @@
 import logging
 import os
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 from config import LOG_FILE, LOG_LEVEL
@@ -32,3 +33,11 @@ def setup_logging():
     root_logger.setLevel(LOG_LEVEL)
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
+
+    # Log application startup
+    logger = logging.getLogger(__name__)
+    startup_msg = f"Application starting at {datetime.now().isoformat()}"
+    logger.error(startup_msg)  # Log at ERROR level as requested
+
+    # Add separator line for better log readability
+    logger.error("-" * 80)
