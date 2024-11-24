@@ -42,9 +42,9 @@ jobs:
           ssh $DEPLOY_USER@$DEPLOY_HOST '
             sudo useradd -m -s /bin/bash sales_bot || true &&
             sudo mkdir -p /var/log/sales_bot &&
-            sudo chown -R sales_bot:sales_bot /var/log/sales_bot /home/sales_bot &&
+            sudo chown -R sales_bot:sales_bot /var/log/sales_bot ~/sales_bot &&
             ls -la &&
-            cd /home/sales_bot &&
+            cd ~/sales_bot &&
             ls -la &&
             sudo -u sales_bot python3 -m venv venv &&
             sudo -u sales_bot venv/bin/pip install -r requirements.txt &&
@@ -56,8 +56,8 @@ jobs:
           [Service]
           Type=simple
           User=sales_bot
-          WorkingDirectory=/home/sales_bot
-          ExecStart=/home/sales_bot/venv/bin/python main.py
+          WorkingDirectory=~/sales_bot
+          ExecStart=~/sales_bot/venv/bin/python main.py
           StandardOutput=append:/var/log/sales_bot/app.log
           StandardError=append:/var/log/sales_bot/error.log
           Restart=always
