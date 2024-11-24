@@ -3,7 +3,7 @@ import logging
 import random
 from datetime import datetime
 
-from db.queries import AccountQueries, get_db
+from db.queries import AccountQueries
 
 from .client import AccountClient
 from .models import Account
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class AccountWarmup:
     def __init__(self, db):
         self.db = db
+        self.queries = AccountQueries(db)
         self.notifier = AccountNotifier()
         self._warmup_actions = [
             self._join_channels,
@@ -57,25 +58,23 @@ class AccountWarmup:
         stats = {"total": 0, "success": 0, "failed": 0}
 
         try:
-            async with get_db() as db:
-                account_queries = AccountQueries(db)
-                # Получаем аккаунты для прогрева
-                accounts = await account_queries.get_accounts_for_warmup()
-                stats["total"] = len(accounts)
+            # Get accounts for warmup using self.queries
+            accounts = await self.queries.get_accounts_for_warmup()
+            stats["total"] = len(accounts)
 
-                for account in accounts:
-                    try:
-                        if await self.warmup_account(account):
-                            stats["success"] += 1
-                        else:
-                            stats["failed"] += 1
-                    except Exception as e:
-                        logger.error(f"Failed to warmup account {account.phone}: {e}")
+            for account in accounts:
+                try:
+                    if await self.warmup_account(account):
+                        stats["success"] += 1
+                    else:
                         stats["failed"] += 1
+                except Exception as e:
+                    logger.error(f"Failed to warmup account {account.phone}: {e}")
+                    stats["failed"] += 1
 
-                # Отправляем отчет
-                await self._notify_warmup_results(stats)
-                return stats
+            # Send report
+            await self._notify_warmup_results(stats)
+            return stats
 
         except Exception as e:
             logger.error(f"Error during warmup: {e}")
@@ -176,4 +175,4 @@ class AccountWarmup:
             f"❌ Неудачно: {stats['failed']}\n\n"
             f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
-        await self.notifier.send_notification(message)
+        await self.notifier._send_notification(message)

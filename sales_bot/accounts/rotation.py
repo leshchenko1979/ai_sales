@@ -5,6 +5,7 @@ from typing import List
 from .models import Account, AccountStatus
 from .monitoring import AccountMonitor
 from .notifications import AccountNotifier
+from .queries import AccountQueries
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 class AccountRotator:
     def __init__(self, db):
         self.db = db
+        self.queries = AccountQueries(db)
         self.monitor = AccountMonitor(db)
         self.notifier = AccountNotifier()
 
@@ -46,7 +48,7 @@ class AccountRotator:
     async def _enable_rested_accounts(self) -> List[Account]:
         """Включает аккаунты, которые достаточно отдохнули"""
         # Получаем отключенные аккаунты
-        disabled_accounts = await self.db.queries.get_accounts_by_status(
+        disabled_accounts = await self.queries.get_accounts_by_status(
             AccountStatus.DISABLED.value
         )
         enabled_accounts = []
@@ -62,7 +64,7 @@ class AccountRotator:
                 # Проверяем работоспособность
                 if await self.monitor.check_account(account):
                     # Включаем аккаунт
-                    await self.db.queries.update_account_status_by_id(
+                    await self.queries.update_account_status_by_id(
                         account.id, AccountStatus.ACTIVE.value
                     )
                     enabled_accounts.append(account)
@@ -76,7 +78,7 @@ class AccountRotator:
     async def _disable_tired_accounts(self) -> List[Account]:
         """Отключает аккаунты, которые много работали"""
         # Получаем активные аккаунты
-        active_accounts = await self.db.queries.get_accounts_by_status(
+        active_accounts = await self.queries.get_accounts_by_status(
             AccountStatus.ACTIVE.value
         )
         disabled_accounts = []
@@ -99,7 +101,7 @@ class AccountRotator:
 
                 if should_disable:
                     # Отключаем аккаунт
-                    await self.db.queries.update_account_status_by_id(
+                    await self.queries.update_account_status_by_id(
                         account.id, AccountStatus.DISABLED.value
                     )
                     disabled_accounts.append(account)

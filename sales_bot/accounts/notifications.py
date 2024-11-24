@@ -89,7 +89,7 @@ class AccountNotifier:
         key = f"{account_id}_{notification_type}"
         self._last_notification[key] = datetime.now()
 
-    async def _send_notification(self, message: str):
+    async def send_notification(self, message: str):
         """Отправляет уведомление администратору"""
         try:
             await app.send_message(self.admin_id, message)
