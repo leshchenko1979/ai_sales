@@ -33,7 +33,8 @@ async def message_handler(client, message):
         if not username:
             return
 
-        async for db in get_db():
+        db = await get_db()
+        try:
             # Check for active dialog
             dialog = await get_active_dialog(db, username)
             if not dialog:
@@ -65,6 +66,9 @@ async def message_handler(client, message):
 
             logger.info(f"Processed message in dialog {dialog.id} with @{username}")
 
+        finally:
+            db.close()
+
     except Exception as e:
         logger.error(f"Error in message_handler: {e}")
         await message.reply_text(
@@ -77,33 +81,34 @@ async def start_dialog_with_user(username: str) -> bool:
         # Генерируем первое сообщение
         initial_message = await generate_initial_message()
 
-        async for db in get_db():
-            # Проверяем наличие активного диалога
-            existing_dialog = await get_active_dialog(db, username)
-            if existing_dialog:
-                return False
+        db = await get_db()
 
-            try:
-                # Пробуем получить пользователя и отправить сообщение
-                user = await app.get_input_entity(f"@{username}")
-                await app.send_message(user, initial_message)
-            except ValueError as e:
-                logger.error(f"Could not find user @{username}: {e}")
-                return False
-            except Exception as e:
-                logger.error(f"Could not send message to @{username}: {e}")
-                return False
+        # Проверяем наличие активного диалога
+        existing_dialog = await get_active_dialog(db, username)
+        if existing_dialog:
+            return False
 
-            # Создаем новый диалог только если сообщене отправлено успешно
-            dialog = Dialog(target_username=username, status='active')
-            db.add(dialog)
-            db.commit()
+        try:
+            # Пробуем получить пользователя и отправить сообщение
+            user = await app.get_input_entity(f"@{username}")
+            await app.send_message(user, initial_message)
+        except ValueError as e:
+            logger.error(f"Could not find user @{username}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Could not send message to @{username}: {e}")
+            return False
 
-            # Сохраняем первое сообщение
-            await save_message(dialog.id, "out", initial_message)
+        # Создаем новый диалог только если сообщене отправлено успешно
+        dialog = Dialog(target_username=username, status='active')
+        db.add(dialog)
+        db.commit()
 
-            logger.info(f"Successfully started dialog with @{username}")
-            return True
+        # Сохраняем первое сообщение
+        await save_message(dialog.id, "out", initial_message)
+
+        logger.info(f"Successfully started dialog with @{username}")
+        return True
 
     except Exception as e:
         logger.error(f"Error starting dialog with @{username}: {e}")

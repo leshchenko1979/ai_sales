@@ -13,13 +13,14 @@ def init_db():
     """Инициализация базы данных"""
     Base.metadata.create_all(engine)
 
-def get_db():
+async def get_db():
     """Получение сессии базы данных"""
     db = SessionLocal()
     try:
-        yield db
-    finally:
+        return db
+    except:
         db.close()
+        raise
 
 async def create_dialog(username: str):
     """Создание нового диалога"""
