@@ -76,7 +76,7 @@ jobs:
           Environment="DATABASE_URL=${{ secrets.ENV_DATABASE_URL }}"
           Environment="LOG_LEVEL=INFO"
           Environment="LOG_FILE=/var/log/sales_bot/app.log"
-          ExecStart=/home/sales_bot/venv/bin/python -m main.py
+          ExecStart=/home/sales_bot/venv/bin/python main.py
           StandardOutput=append:/var/log/sales_bot/app.log
           StandardError=append:/var/log/sales_bot/error.log
           Restart=always

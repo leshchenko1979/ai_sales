@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import AsyncGenerator, List, Optional
 
 from config import DATABASE_URL
 from sqlalchemy import select, update
@@ -22,7 +22,7 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Получение сессии базы данных"""
     async with AsyncSessionLocal() as session:
         try:
