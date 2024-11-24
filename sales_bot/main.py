@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from bot.client import app
+from db.migrate import create_tables
 from pyrogram import idle
 from scheduler import AccountScheduler
 
@@ -28,6 +29,7 @@ async def initialize_services():
 async def main():
     """Main application entry point"""
     try:
+        await create_tables()
         async with initialize_services():
             await idle()
     except Exception as e:
