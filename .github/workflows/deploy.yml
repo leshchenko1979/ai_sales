@@ -42,14 +42,14 @@ jobs:
             --exclude '.git' \
             --exclude 'venv' \
             --exclude '__pycache__' \
-            ./ $DEPLOY_USER@$DEPLOY_HOST:/opt/sales_bot/
+            ./ $DEPLOY_USER@$DEPLOY_HOST:~/sales_bot/
 
       - name: Update and restart service
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh $DEPLOY_USER@$DEPLOY_HOST 'cd /opt/sales_bot && \
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'cd ~/sales_bot && \
           python3 -m venv venv && \
           source venv/bin/activate && \
           pip install -r requirements.txt && \
