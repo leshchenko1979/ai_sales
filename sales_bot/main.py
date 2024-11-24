@@ -5,6 +5,7 @@ from pathlib import Path
 
 from bot.client import app
 from db.migrate import create_tables
+from pyrogram import idle
 from scheduler import AccountScheduler
 
 logger = logging.getLogger(__name__)
@@ -14,8 +15,14 @@ async def main():
     """Main application entry point"""
     try:
         await create_tables()
-        async with initialize_services():
-            await app.run()
+        async with initialize_services(), app:
+            logger.info("Bot started successfully")
+
+            # Idle the main task to keep the bot running
+            await idle()
+
+        logger.info("Bot stopped")
+
     except Exception as e:
         logger.error(f"Error in main: {e}")
         raise
