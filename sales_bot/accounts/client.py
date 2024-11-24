@@ -1,9 +1,8 @@
 import logging
 from typing import Optional
 
+from config import API_HASH, API_ID
 from pyrogram import Client
-
-from sales_bot.config import API_HASH, API_ID
 
 from .models import Account
 

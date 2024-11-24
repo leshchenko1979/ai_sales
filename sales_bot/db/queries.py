@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from typing import AsyncGenerator, List, Optional
 
@@ -10,10 +11,14 @@ from sqlalchemy.orm import sessionmaker
 from .models import Account, AccountStatus, Base, Dialog, Message
 
 # Создаем асинхронный движок базы данных
-engine = create_async_engine(DATABASE_URL)
+engine = create_async_engine(DATABASE_URL) if not os.getenv("TESTING") else None
 
 # Создаем фабрику асинхронных сессий
-AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+AsyncSessionLocal = (
+    sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    if not os.getenv("TESTING")
+    else None
+)
 
 
 async def init_db():
