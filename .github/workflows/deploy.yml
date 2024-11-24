@@ -1,0 +1,64 @@
+name: Deploy Bot
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Create .env file
+        run: |
+          cat << EOF > .env
+          # Telegram Bot settings
+          BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+          API_ID=${{ secrets.API_ID }}
+          API_HASH=${{ secrets.API_HASH }}
+          ADMIN_TELEGRAM_ID=${{ secrets.ADMIN_TELEGRAM_ID }}
+
+          # OpenRouter
+          OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
+
+          # Database settings
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          EOF
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy application
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude 'venv' \
+            --exclude '__pycache__' \
+            ./ $DEPLOY_USER@$DEPLOY_HOST:/opt/sales_bot/
+
+      - name: Update and restart service
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'cd /opt/sales_bot && \
+          python3 -m venv venv && \
+          source venv/bin/activate && \
+          pip install -r requirements.txt && \
+          sudo systemctl stop sales_bot || true && \
+          sudo systemctl start sales_bot'
+
+      - name: Check service status
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo systemctl status sales_bot'
