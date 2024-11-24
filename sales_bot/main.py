@@ -7,6 +7,7 @@ from bot.client import app
 from db.migrate import create_tables
 from pyrogram import idle
 from scheduler import AccountScheduler
+from utils.logging import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 async def main():
     """Main application entry point"""
     try:
+        setup_logging()
         await create_tables()
         async with initialize_services(), app:
             logger.info("Bot started successfully")
