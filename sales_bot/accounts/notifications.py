@@ -27,7 +27,7 @@ class AccountNotifier:
             f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
 
-        await self._send_notification(message)
+        await self.send_notification(message)
         self._update_notification_time(account.id, "blocked")
 
     async def notify_disabled(self, account: Account, reason: str):
@@ -42,7 +42,7 @@ class AccountNotifier:
             f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
 
-        await self._send_notification(message)
+        await self.send_notification(message)
         self._update_notification_time(account.id, "disabled")
 
     async def notify_limit_reached(self, account: Account):
@@ -57,7 +57,7 @@ class AccountNotifier:
             f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
 
-        await self._send_notification(message)
+        await self.send_notification(message)
         self._update_notification_time(account.id, "limit")
 
     async def notify_status_report(self, stats: dict):
@@ -71,7 +71,7 @@ class AccountNotifier:
             f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
 
-        await self._send_notification(message)
+        await self.send_notification(message)
 
     async def _should_notify(self, account_id: int, notification_type: str) -> bool:
         """Проверяет, нужно ли отправлять уведомление"""

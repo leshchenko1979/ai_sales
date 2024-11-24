@@ -179,4 +179,4 @@ class AccountWarmup:
             f"❌ Неудачно: {stats['failed']}\n\n"
             f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         )
-        await self.notifier._send_notification(message)
+        await self.notifier.send_notification(message)
