@@ -44,7 +44,9 @@ jobs:
             sudo useradd -m -s /bin/bash sales_bot || true &&
             sudo mkdir -p /var/log/sales_bot &&
             sudo chown -R sales_bot:sales_bot /var/log/sales_bot /home/sales_bot &&
+            ls -la &&
             cd /home/sales_bot &&
+            ls -la &&
             sudo -u sales_bot python3 -m venv venv &&
             sudo -u sales_bot venv/bin/pip install -r requirements.txt &&
             sudo tee /etc/systemd/system/sales_bot.service << EOF
