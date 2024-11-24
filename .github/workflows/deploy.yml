@@ -93,14 +93,38 @@ jobs:
           WantedBy=multi-user.target
           EOF'
 
-      - name: Start service
+      - name: Start and verify service
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           ssh $DEPLOY_USER@$DEPLOY_HOST '
+            echo "Reloading systemd..." &&
             sudo systemctl daemon-reload &&
+
+            echo "\nEnabling and starting service..." &&
             sudo systemctl enable sales_bot &&
             sudo systemctl restart sales_bot &&
+
+            echo "\nWaiting for service to stabilize..." &&
+            sleep 3 &&
+
+            echo "\nChecking service status..." &&
             sudo systemctl status sales_bot &&
-            tail -n 50 /var/log/sales_bot/error.log'
+
+            echo "\nChecking if service is active..." &&
+            if ! sudo systemctl is-active --quiet sales_bot; then
+              echo "Service failed to start!" &&
+              echo "\nLast 50 lines of error log:" &&
+              sudo tail -n 50 /var/log/sales_bot/error.log &&
+              echo "\nJournal logs:" &&
+              sudo journalctl -u sales_bot -n 50 --no-pager &&
+              exit 1
+            fi &&
+
+            echo "\nService started successfully!" &&
+            echo "\nRecent application logs:" &&
+            sudo tail -n 20 /var/log/sales_bot/app.log &&
+
+            echo "\nRecent error logs:" &&
+            sudo tail -n 20 /var/log/sales_bot/error.log'
