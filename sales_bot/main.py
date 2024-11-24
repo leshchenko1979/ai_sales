@@ -2,8 +2,6 @@ import logging
 import os
 from config import LOG_LEVEL, LOG_FILE, API_ID, API_HASH, BOT_TOKEN
 from utils.logging import setup_logging
-from pyrogram import Client
-from models import init_db
 from bot.client import init_client
 
 def cleanup_session():
@@ -21,17 +19,15 @@ def main():
     logger.info("Starting Sales Bot...")
 
     try:
-        # Cleanup old session
-        cleanup_session()
-
         # Initialize the client
         app = init_client(API_ID, API_HASH, BOT_TOKEN)
 
-        # Import handlers after client initialization
+        # Import handlers
         from bot import commands, dialogs
 
-        # Start the client
+        # Run the client (handles start/stop automatically)
         app.run()
+
         logger.info("Bot started successfully")
     except Exception as e:
         logger.error(f"Error running bot: {e}", exc_info=True)

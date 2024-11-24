@@ -25,7 +25,7 @@ async def get_dialog_history(db, dialog_id: int) -> list:
         for msg in messages
     ]
 
-@app.on_message(filters.private & ~filters.command & ~filters.me)
+@app.on_message(filters.private & ~filters.command() & ~filters.me)
 async def message_handler(client, message):
     """Handle incoming messages"""
     try:
@@ -94,7 +94,7 @@ async def start_dialog_with_user(username: str) -> bool:
                 logger.error(f"Could not send message to @{username}: {e}")
                 return False
 
-            # Создаем новый диалог только если сообщен��е отправлено успешно
+            # Создаем новый диалог только если сообщене отправлено успешно
             dialog = Dialog(target_username=username, status='active')
             db.add(dialog)
             db.commit()

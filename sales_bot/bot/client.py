@@ -14,9 +14,3 @@ def init_client(api_id: int, api_hash: str, bot_token: str) -> Client:
             bot_token=bot_token
         )
     return app
-
-def get_client() -> Client:
-    """Get the initialized client instance"""
-    if app is None:
-        raise RuntimeError("Client not initialized. Call init_client() first.")
-    return app
