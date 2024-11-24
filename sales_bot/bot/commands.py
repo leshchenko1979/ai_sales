@@ -50,7 +50,8 @@ async def stop_command(client, message):
             return
 
         dialog_id = int(args[1])
-        async for db in get_db():
+        db = await get_db()
+        try:
             dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
             if not dialog:
                 await message.reply_text(f"Диалог {dialog_id} не найден.")
@@ -58,9 +59,10 @@ async def stop_command(client, message):
 
             dialog.status = 'stopped'
             db.commit()
-
-        await message.reply_text(f"Диалог {dialog_id} остановлен.")
-        logger.info(f"Stopped dialog {dialog_id}")
+            await message.reply_text(f"Диалог {dialog_id} остановлен.")
+            logger.info(f"Stopped dialog {dialog_id}")
+        finally:
+            db.close()
 
     except Exception as e:
         logger.error(f"Error in stop_command: {e}")
@@ -73,7 +75,8 @@ async def list_command(client, message):
         return
 
     try:
-        async for db in get_db():
+        db = await get_db()
+        try:
             dialogs = db.query(Dialog).filter(Dialog.status == 'active').all()
 
             if not dialogs:
@@ -85,6 +88,8 @@ async def list_command(client, message):
                 response += f"ID: {dialog.id} - @{dialog.target_username}\n"
 
             await message.reply_text(response)
+        finally:
+            db.close()
 
     except Exception as e:
         logger.error(f"Error in list_command: {e}")
