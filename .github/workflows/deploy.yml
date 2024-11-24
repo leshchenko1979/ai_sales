@@ -33,12 +33,15 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Create sales_bot user and set up directories
+      - name: Create sales_bot user and directories
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo useradd -m -s /bin/bash sales_bot || true'
+          ssh $DEPLOY_USER@$DEPLOY_HOST '
+          sudo useradd -m -s /bin/bash sales_bot || true
+          sudo mkdir -p /var/log/sales_bot
+          sudo chown sales_bot:sales_bot /var/log/sales_bot'
 
       - name: Deploy application
         env:
@@ -51,14 +54,17 @@ jobs:
             --exclude '__pycache__' \
             ./ $DEPLOY_USER@$DEPLOY_HOST:/home/sales_bot/sales_bot/
 
-      - name: Set permissions
+      - name: Set up Python environment
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo chown -R sales_bot:sales_bot /home/sales_bot/sales_bot'
+          ssh $DEPLOY_USER@$DEPLOY_HOST '
+          cd /home/sales_bot/sales_bot
+          sudo -u sales_bot python3 -m venv venv
+          sudo -u sales_bot venv/bin/pip install -r requirements.txt'
 
-      - name: Create and configure systemd service
+      - name: Configure service
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -71,8 +77,12 @@ jobs:
           [Service]
           Type=simple
           User=sales_bot
+          Group=sales_bot
           WorkingDirectory=/home/sales_bot/sales_bot
-          ExecStart=/home/sales_bot/sales_bot/venv/bin/python main.py
+          Environment=PYTHONUNBUFFERED=1
+          ExecStart=/home/sales_bot/sales_bot/venv/bin/python -u main.py
+          StandardOutput=append:/var/log/sales_bot/app.log
+          StandardError=append:/var/log/sales_bot/error.log
           Restart=always
           RestartSec=10
 
@@ -80,27 +90,22 @@ jobs:
           WantedBy=multi-user.target
           EOF'
 
-      - name: Set up Python environment
+      - name: Set permissions and restart service
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh $DEPLOY_USER@$DEPLOY_HOST 'cd /home/sales_bot/sales_bot && \
-          sudo -u sales_bot python3 -m venv venv && \
-          sudo -u sales_bot venv/bin/pip install -r requirements.txt'
-
-      - name: Restart service
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-        run: |
-          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo systemctl daemon-reload && \
-          sudo systemctl enable sales_bot && \
+          ssh $DEPLOY_USER@$DEPLOY_HOST '
+          sudo chown -R sales_bot:sales_bot /home/sales_bot/sales_bot
+          sudo systemctl daemon-reload
+          sudo systemctl enable sales_bot
           sudo systemctl restart sales_bot'
 
-      - name: Check service status
+      - name: Check service status and logs
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
-          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo systemctl status sales_bot'
+          ssh $DEPLOY_USER@$DEPLOY_HOST '
+          sudo systemctl status sales_bot
+          tail -n 50 /var/log/sales_bot/error.log'
