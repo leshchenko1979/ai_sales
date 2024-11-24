@@ -11,9 +11,10 @@ def setup_logging():
     # Создаем директорию для логов если её нет
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
-    # Настраиваем формат
+    # Настраиваем формат с миллисекундами
     formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        "%(asctime)s.%(msecs)03d - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     # Настраиваем файловый обработчик с ротацией
@@ -34,9 +35,11 @@ def setup_logging():
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
-    # Log application startup
+    # Log application startup with precise timestamp
     logger = logging.getLogger(__name__)
-    startup_msg = f"Application starting at {datetime.now().isoformat()}"
+    startup_msg = (
+        f"Application starting at {datetime.now().isoformat(timespec='microseconds')}"
+    )
     logger.error(startup_msg)  # Log at ERROR level as requested
 
     # Add separator line for better log readability
