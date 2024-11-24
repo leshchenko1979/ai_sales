@@ -1,5 +1,6 @@
 import logging
 
+from db.queries import AccountQueries
 from pyrogram.errors import (
     AuthKeyUnregistered,
     SessionRevoked,
@@ -15,8 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 class AccountMonitor:
-    def __init__(self, db):
-        self.db = db
+    def __init__(self, db_session):
+        self.db = db_session
+        self.queries = AccountQueries(db_session)
         self._error_counts = {}  # account_id -> error_count
         self.notifier = AccountNotifier()
 
@@ -75,7 +77,7 @@ class AccountMonitor:
         """
         stats = {"total": 0, "active": 0, "disabled": 0, "blocked": 0}
 
-        accounts = await self.db.queries.get_active_accounts()
+        accounts = await self.queries.get_active_accounts()
         stats["total"] = len(accounts)
 
         for account in accounts:
@@ -92,20 +94,20 @@ class AccountMonitor:
 
     async def _mark_account_blocked(self, account_id: int, reason: str):
         """Помечает аккаунт как заблокированный"""
-        account = await self.db.queries.get_account_by_id(account_id)
+        account = await self.queries.get_account_by_id(account_id)
         if account:
-            await self.db.queries.update_account_status_by_id(
-                account_id, AccountStatus.BLOCKED.value
+            await self.queries.update_account_status_by_id(
+                account_id, AccountStatus.BLOCKED
             )
             await self.notifier.notify_blocked(account, reason)
             self._error_counts.pop(account_id, None)
 
     async def _mark_account_disabled(self, account_id: int, reason: str):
         """Помечает аккаунт как отключенный"""
-        account = await self.db.queries.get_account_by_id(account_id)
+        account = await self.queries.get_account_by_id(account_id)
         if account:
-            await self.db.queries.update_account_status_by_id(
-                account_id, AccountStatus.DISABLED.value
+            await self.queries.update_account_status_by_id(
+                account_id, AccountStatus.DISABLED
             )
             await self.notifier.notify_disabled(account, reason)
             self._error_counts.pop(account_id, None)

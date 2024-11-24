@@ -215,3 +215,10 @@ class DialogQueries:
         )
         await self.session.commit()
         return result.rowcount > 0
+
+
+async def get_active_accounts(session):
+    """Get all active accounts from the database"""
+    query = select(Account).where(Account.is_active)
+    result = await session.execute(query)
+    return result.scalars().all()
