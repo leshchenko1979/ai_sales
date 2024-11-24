@@ -65,7 +65,7 @@ jobs:
           API_ID=${{ secrets.ENV_API_ID }}
           API_HASH=${{ secrets.ENV_API_HASH }}
           ADMIN_TELEGRAM_ID=${{ secrets.ENV_ADMIN_TELEGRAM_ID }}
-          OPENAI_API_KEY=${{ secrets.ENV_OPENAI_API_KEY }}
+          OPENROUTER_API_KEY=${{ secrets.ENV_OPENROUTER_API_KEY }}
           DATABASE_URL=${{ secrets.ENV_DATABASE_URL }}
           EOF'
 
