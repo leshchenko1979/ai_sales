@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from bot.client import app
+from pyrogram import idle
 from scheduler import AccountScheduler
 
 logger = logging.getLogger(__name__)
@@ -18,9 +19,9 @@ async def main():
         await app.start()
         logger.info("Bot started")
 
-        # Wait for shutdown
+        # Wait for shutdown using pyrogram.idle()
         try:
-            await app.idle()
+            await idle()
         finally:
             # Cleanup
             await scheduler.stop()
