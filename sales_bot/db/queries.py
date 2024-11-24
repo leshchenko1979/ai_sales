@@ -10,6 +10,9 @@ from sqlalchemy.orm import sessionmaker
 
 from .models import Account, AccountStatus, Base, Dialog, Message
 
+# Update the DATABASE_URL to use asyncpg
+DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+
 # Создаем асинхронный движок базы данных
 engine = create_async_engine(DATABASE_URL) if not os.getenv("TESTING") else None
 

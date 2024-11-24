@@ -1,5 +1,5 @@
 pyrogram
 tgcrypto
 sqlalchemy
-psycopg2-binary
+asyncpg
 aiohttp
