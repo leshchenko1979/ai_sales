@@ -2,10 +2,11 @@ import logging
 from datetime import datetime, timedelta
 from typing import List
 
-from .models import Account, AccountStatus
+from db.models import Account, AccountStatus
+from db.queries import AccountQueries
+
 from .monitoring import AccountMonitor
 from .notifications import AccountNotifier
-from .queries import AccountQueries
 
 logger = logging.getLogger(__name__)
 
