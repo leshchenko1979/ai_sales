@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import Optional
 
 from accounts.monitoring import AccountMonitor
@@ -10,6 +10,7 @@ from accounts.warmup import AccountWarmup
 from db.queries import get_db
 
 logger = logging.getLogger(__name__)
+
 
 class AccountScheduler:
     def __init__(self):
@@ -39,7 +40,7 @@ class AccountScheduler:
             asyncio.create_task(self._run_periodic_check()),
             asyncio.create_task(self._run_daily_reset()),
             asyncio.create_task(self._run_account_rotation()),
-            asyncio.create_task(self._run_account_warmup())
+            asyncio.create_task(self._run_account_warmup()),
         ]
 
         logger.info("Account scheduler started")
@@ -89,8 +90,12 @@ class AccountScheduler:
                 reset_time = time(hour=3, minute=0)
 
                 next_reset = datetime.combine(
-                    now.date() if now.time() < reset_time else now.date() + timedelta(days=1),
-                    reset_time
+                    (
+                        now.date()
+                        if now.time() < reset_time
+                        else now.date() + timedelta(days=1)
+                    ),
+                    reset_time,
                 )
 
                 # Sleep until next reset

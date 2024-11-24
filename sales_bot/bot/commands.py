@@ -1,17 +1,18 @@
 import logging
-from pyrogram import filters, Client
-from .client import app
-from config import ADMIN_TELEGRAM_ID
-from db.queries import create_dialog, get_db
-from db.models import Dialog, Message
-from utils.export import export_dialog, export_all_dialogs
-from typing import Optional
-from pyrogram.types import Message
 
 from accounts.manager import AccountManager
 from accounts.monitoring import AccountMonitor
+from config import ADMIN_TELEGRAM_ID
+from db.models import Dialog, Message
+from db.queries import create_dialog, get_db
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from utils.export import export_all_dialogs, export_dialog
+
+from .client import app
 
 logger = logging.getLogger(__name__)
+
 
 async def check_admin(message):
     """Check admin rights"""
@@ -19,6 +20,7 @@ async def check_admin(message):
         await message.reply_text("У вас нет прав для выполнения этой команды.")
         return False
     return True
+
 
 @app.on_message(filters.command("start") & filters.private)
 async def start_command(client, message):
@@ -28,19 +30,22 @@ async def start_command(client, message):
 
     try:
         args = message.text.split()
-        if len(args) != 2 or not args[1].startswith('@'):
+        if len(args) != 2 or not args[1].startswith("@"):
             await message.reply_text("Использование: /start @username")
             return
 
         username = args[1][1:]  # Remove @ from start
         dialog_id = await create_dialog(username)
 
-        await message.reply_text(f"Диалог {dialog_id} с пользователем @{username} начат.")
+        await message.reply_text(
+            f"Диалог {dialog_id} с пользователем @{username} начат."
+        )
         logger.info(f"Started dialog {dialog_id} with @{username}")
 
     except Exception as e:
         logger.error(f"Error in start_command: {e}")
         await message.reply_text("Произошла ошибка при создании диалога.")
+
 
 @app.on_message(filters.command("stop") & filters.private)
 async def stop_command(client, message):
@@ -62,7 +67,7 @@ async def stop_command(client, message):
                 await message.reply_text(f"Диалог {dialog_id} не найден.")
                 return
 
-            dialog.status = 'stopped'
+            dialog.status = "stopped"
             db.commit()
             await message.reply_text(f"Диалог {dialog_id} остановлен.")
             logger.info(f"Stopped dialog {dialog_id}")
@@ -73,6 +78,7 @@ async def stop_command(client, message):
         logger.error(f"Error in stop_command: {e}")
         await message.reply_text("Произошла ошибка при остановке диалога.")
 
+
 @app.on_message(filters.command("list") & filters.private)
 async def list_command(client, message):
     """Обработчик команды /list"""
@@ -82,7 +88,7 @@ async def list_command(client, message):
     try:
         db = await get_db()
         try:
-            dialogs = db.query(Dialog).filter(Dialog.status == 'active').all()
+            dialogs = db.query(Dialog).filter(Dialog.status == "active").all()
 
             if not dialogs:
                 await message.reply_text("Нет активных диалогов.")
@@ -100,6 +106,7 @@ async def list_command(client, message):
         logger.error(f"Error in list_command: {e}")
         await message.reply_text("Произошла ошибка при получении списка диалогов.")
 
+
 @app.on_message(filters.command("view") & filters.private)
 async def view_command(client, message):
     """Обработчик команды /view N"""
@@ -115,12 +122,17 @@ async def view_command(client, message):
         dialog_id = int(args[1])
         db = await get_db()
         try:
-            messages = db.query(Message).filter(
-                Message.dialog_id == dialog_id
-            ).order_by(Message.timestamp).all()
+            messages = (
+                db.query(Message)
+                .filter(Message.dialog_id == dialog_id)
+                .order_by(Message.timestamp)
+                .all()
+            )
 
             if not messages:
-                await message.reply_text(f"Сообщения для диалога {dialog_id} не найдены.")
+                await message.reply_text(
+                    f"Сообщения для диалога {dialog_id} не найдены."
+                )
                 return
 
             response = f"Диалог {dialog_id}:\n\n"
@@ -135,6 +147,7 @@ async def view_command(client, message):
     except Exception as e:
         logger.error(f"Error in view_command: {e}")
         await message.reply_text("Произошла ошибка при просмотре диалога.")
+
 
 @app.on_message(filters.command("export") & filters.private)
 async def export_command(client, message):
@@ -152,7 +165,7 @@ async def export_command(client, message):
         file_path = await export_dialog(dialog_id)
 
         if file_path:
-            with open(file_path, 'rb') as file:
+            with open(file_path, "rb") as file:
                 await message.reply_document(file)
         else:
             await message.reply_text("Диалог не найден или пуст.")
@@ -160,6 +173,7 @@ async def export_command(client, message):
     except Exception as e:
         logger.error(f"Error in export_command: {e}")
         await message.reply_text("Произошла ошибка при экспорте диалога.")
+
 
 @app.on_message(filters.command("export_all") & filters.private)
 async def export_all_command(client, message):
@@ -171,7 +185,7 @@ async def export_all_command(client, message):
         file_path = await export_all_dialogs()
 
         if file_path:
-            with open(file_path, 'rb') as file:
+            with open(file_path, "rb") as file:
                 await message.reply_document(file)
         else:
             await message.reply_text("Нет диалогов для экспорта.")
@@ -179,6 +193,7 @@ async def export_all_command(client, message):
     except Exception as e:
         logger.error(f"Error in export_all_command: {e}")
         await message.reply_text("Произошла ошибка при экспорте диалогов.")
+
 
 @app.on_message(filters.command("help") & filters.private)
 async def help_command(client, message):
@@ -210,14 +225,18 @@ async def help_command(client, message):
         logger.error(f"Error in help_command: {e}")
         await message.reply_text("Произошла ошибка при выводе справки.")
 
+
 def admin_only(func):
     """Декоратор для проверки прав администратора"""
+
     async def wrapper(client: Client, message: Message):
         if message.from_user.id != ADMIN_TELEGRAM_ID:
             await message.reply("У вас нет прав для выполнения этой команды.")
             return
         return await func(client, message)
+
     return wrapper
+
 
 @admin_only
 async def cmd_add_account(client: Client, message: Message):
@@ -226,7 +245,9 @@ async def cmd_add_account(client: Client, message: Message):
         # Получаем номер телефона из команды
         args = message.text.split()
         if len(args) != 2:
-            await message.reply("Использование: /add_account phone\nПример: /add_account +79001234567")
+            await message.reply(
+                "Использование: /add_account phone\nПример: /add_account +79001234567"
+            )
             return
 
         phone = args[1]
@@ -253,6 +274,7 @@ async def cmd_add_account(client: Client, message: Message):
         logger.error(f"Error in cmd_add_account: {e}")
         await message.reply("Произошла ошибка при добавлении аккаунта.")
 
+
 @admin_only
 async def cmd_authorize(client: Client, message: Message):
     """Авторизация аккаунта"""
@@ -277,7 +299,9 @@ async def cmd_authorize(client: Client, message: Message):
             if success:
                 await message.reply("Аккаунт успешно авторизован.")
             else:
-                await message.reply("Не удалось авторизовать аккаунт. Проверьте код и попробуйте снова.")
+                await message.reply(
+                    "Не удалось авторизовать аккаунт. Проверьте код и попробуйте снова."
+                )
 
         finally:
             db.close()
@@ -285,6 +309,7 @@ async def cmd_authorize(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Error in cmd_authorize: {e}")
         await message.reply("Произошла ошибка при авторизации аккаунта.")
+
 
 @admin_only
 async def cmd_list_accounts(client: Client, message: Message):
@@ -301,11 +326,9 @@ async def cmd_list_accounts(client: Client, message: Message):
 
             response = "Список аккаунтов:\n\n"
             for acc in accounts:
-                status_emoji = {
-                    'active': '🟢',
-                    'disabled': '🔴',
-                    'blocked': '⛔'
-                }.get(acc.status, '❓')
+                status_emoji = {"active": "🟢", "disabled": "🔴", "blocked": "⛔"}.get(
+                    acc.status, "❓"
+                )
 
                 response += (
                     f"{status_emoji} {acc.phone}\n"
@@ -322,6 +345,7 @@ async def cmd_list_accounts(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Error in cmd_list_accounts: {e}")
         await message.reply("Произошла ошибка при получении списка аккаунтов.")
+
 
 @admin_only
 async def cmd_disable_account(client: Client, message: Message):
@@ -342,12 +366,16 @@ async def cmd_disable_account(client: Client, message: Message):
         db = await get_db()
         try:
             account_manager = AccountManager(db)
-            success = await account_manager.queries.update_account_status(phone, 'disabled')
+            success = await account_manager.queries.update_account_status(
+                phone, "disabled"
+            )
 
             if success:
                 await message.reply("Аккаунт успешно отключен.")
             else:
-                await message.reply("Не удалось отключить аккаунт. Проверьте номер телефона.")
+                await message.reply(
+                    "Не удалось отключить аккаунт. Проверьте номер телефона."
+                )
 
         finally:
             db.close()
@@ -355,6 +383,7 @@ async def cmd_disable_account(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Error in cmd_disable_account: {e}")
         await message.reply("Произошла ошибка при отключении аккаунта.")
+
 
 @admin_only
 async def cmd_check_account(client: Client, message: Message):
@@ -397,6 +426,7 @@ async def cmd_check_account(client: Client, message: Message):
         logger.error(f"Error in cmd_check_account: {e}")
         await message.reply("Произошла ошибка при проверке аккаунта.")
 
+
 @admin_only
 async def cmd_check_all_accounts(client: Client, message: Message):
     """Проверка всех аккаунтов"""
@@ -420,6 +450,7 @@ async def cmd_check_all_accounts(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Error in cmd_check_all_accounts: {e}")
         await message.reply("Произошла ошибка при проверке аккаунтов.")
+
 
 # Регистрация обработчиков команд
 def register_account_commands(app: Client):

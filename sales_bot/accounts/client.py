@@ -1,11 +1,14 @@
 import logging
-from pyrogram import Client
 from typing import Optional
 
-from sales_bot.config import API_ID, API_HASH
+from pyrogram import Client
+
+from sales_bot.config import API_HASH, API_ID
+
 from .models import Account
 
 logger = logging.getLogger(__name__)
+
 
 class AccountClient:
     def __init__(self, account: Account):
@@ -21,7 +24,7 @@ class AccountClient:
                 api_id=API_ID,
                 api_hash=API_HASH,
                 session_string=self.account.session_string,
-                in_memory=True
+                in_memory=True,
             )
 
             await self.client.start()
@@ -53,7 +56,9 @@ class AccountClient:
             await self.client.send_message(username, text)
             return True
         except Exception as e:
-            logger.error(f"Failed to send message from {self.account.phone} to {username}: {e}")
+            logger.error(
+                f"Failed to send message from {self.account.phone} to {username}: {e}"
+            )
             return False
 
     async def disconnect(self):

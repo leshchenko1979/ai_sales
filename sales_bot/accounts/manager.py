@@ -1,13 +1,14 @@
 import logging
-from typing import List, Optional
-from datetime import datetime
+from typing import Optional
 
 from sales_bot.db.queries import AccountQueries
-from .models import Account, AccountStatus
+
 from .client import AccountClient
+from .models import Account
 from .safety import AccountSafety
 
 logger = logging.getLogger(__name__)
+
 
 class AccountManager:
     def __init__(self, db):

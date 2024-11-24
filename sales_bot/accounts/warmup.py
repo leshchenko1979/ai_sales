@@ -1,14 +1,14 @@
+import asyncio
 import logging
 import random
-import asyncio
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import datetime
 
-from .models import Account, AccountStatus
 from .client import AccountClient
+from .models import Account
 from .notifications import AccountNotifier
 
 logger = logging.getLogger(__name__)
+
 
 class AccountWarmup:
     def __init__(self, db):
@@ -18,7 +18,7 @@ class AccountWarmup:
             self._join_channels,
             self._update_profile,
             self._send_messages_to_self,
-            self._read_channels
+            self._read_channels,
         ]
 
     async def warmup_account(self, account: Account) -> bool:
@@ -52,25 +52,21 @@ class AccountWarmup:
 
     async def warmup_new_accounts(self) -> dict:
         """Прогрев новых аккаунтов"""
-        stats = {
-            'total': 0,
-            'success': 0,
-            'failed': 0
-        }
+        stats = {"total": 0, "success": 0, "failed": 0}
 
         # Получаем аккаунты для прогрева
         accounts = await self.db.queries.get_accounts_for_warmup()
-        stats['total'] = len(accounts)
+        stats["total"] = len(accounts)
 
         for account in accounts:
             try:
                 if await self.warmup_account(account):
-                    stats['success'] += 1
+                    stats["success"] += 1
                 else:
-                    stats['failed'] += 1
+                    stats["failed"] += 1
             except Exception as e:
                 logger.error(f"Failed to warmup account {account.phone}: {e}")
-                stats['failed'] += 1
+                stats["failed"] += 1
 
         # Отправляем отчет
         await self._notify_warmup_results(stats)
@@ -79,8 +75,12 @@ class AccountWarmup:
     async def _join_channels(self, client: AccountClient) -> bool:
         """Присоединение к каналам"""
         channels = [
-            "telegram", "durov", "tginfo",
-            "cryptocurrency", "bitcoin", "trading"
+            "telegram",
+            "durov",
+            "tginfo",
+            "cryptocurrency",
+            "bitcoin",
+            "trading",
         ]
         try:
             # Присоединяемся к 2-3 случайным каналам
@@ -104,13 +104,13 @@ class AccountWarmup:
                 "Investor",
                 "Trading professional",
                 "Financial analyst",
-                "Business developer"
+                "Business developer",
             ]
 
             await client.client.update_profile(
                 first_name=random.choice(first_names),
                 last_name=random.choice(last_names),
-                bio=random.choice(bios)
+                bio=random.choice(bios),
             )
             return True
         except Exception as e:
@@ -120,21 +120,18 @@ class AccountWarmup:
     async def _send_messages_to_self(self, client: AccountClient) -> bool:
         """Отправка сообщений самому себе"""
         try:
-            me = await client.client.get_me()
+            await client.client.get_me()
             messages = [
                 "Investment notes",
                 "Market analysis",
                 "Trading strategy",
                 "Portfolio update",
-                "Research materials"
+                "Research materials",
             ]
 
             # Отправляем 2-3 сообщения
             for _ in range(random.randint(2, 3)):
-                await client.client.send_message(
-                    'me',
-                    random.choice(messages)
-                )
+                await client.client.send_message("me", random.choice(messages))
                 await asyncio.sleep(random.randint(30, 90))
             return True
         except Exception as e:
@@ -148,8 +145,12 @@ class AccountWarmup:
             async for dialog in client.client.get_dialogs():
                 if dialog.chat.type in ["channel", "supergroup"]:
                     # Читаем сообщения
-                    async for message in client.client.get_chat_history(dialog.chat.id, limit=10):
-                        await client.client.read_chat_history(dialog.chat.id, message.id)
+                    async for message in client.client.get_chat_history(
+                        dialog.chat.id, limit=10
+                    ):
+                        await client.client.read_chat_history(
+                            dialog.chat.id, message.id
+                        )
                         await asyncio.sleep(random.randint(5, 15))
                     break  # Читаем только один случайный канал
             return True

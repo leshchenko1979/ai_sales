@@ -1,17 +1,19 @@
 import asyncio
 import logging
 from pathlib import Path
-from sqlalchemy.ext.asyncio import create_async_engine
+
 from config import DATABASE_URL
+from sqlalchemy.ext.asyncio import create_async_engine
 
 logger = logging.getLogger(__name__)
+
 
 async def apply_migration():
     """Apply database migration"""
     try:
         # Read migration file
-        migration_path = Path(__file__).parent / 'init_db.sql'
-        with open(migration_path, 'r') as f:
+        migration_path = Path(__file__).parent / "init_db.sql"
+        with open(migration_path, "r") as f:
             migration_sql = f.read()
 
         # Create async engine
@@ -20,7 +22,7 @@ async def apply_migration():
         # Apply migration
         async with engine.begin() as conn:
             # Split migration into separate statements
-            statements = migration_sql.split(';')
+            statements = migration_sql.split(";")
 
             for statement in statements:
                 if statement.strip():
@@ -32,6 +34,7 @@ async def apply_migration():
         logger.error(f"Error applying migration: {e}")
         raise
 
+
 def main():
     """Main entry point for migration script"""
     try:
@@ -42,6 +45,7 @@ def main():
         logger.error(f"Migration failed: {e}")
         exit(1)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     main()

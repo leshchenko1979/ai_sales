@@ -1,12 +1,13 @@
 import logging
 from datetime import datetime
-from typing import List, Optional
-from pyrogram import Client
-from config import ADMIN_TELEGRAM_ID, BOT_TOKEN
 
-from .models import Account, AccountStatus
+from config import ADMIN_TELEGRAM_ID, BOT_TOKEN
+from pyrogram import Client
+
+from .models import Account
 
 logger = logging.getLogger(__name__)
+
 
 class AccountNotifier:
     def __init__(self):
@@ -24,7 +25,7 @@ class AccountNotifier:
 
     async def notify_blocked(self, account: Account, reason: str):
         """Уведомление о блокировке аккаунта"""
-        if not await self._should_notify(account.id, 'blocked'):
+        if not await self._should_notify(account.id, "blocked"):
             return
 
         message = (
@@ -35,11 +36,11 @@ class AccountNotifier:
         )
 
         await self._send_notification(message)
-        self._update_notification_time(account.id, 'blocked')
+        self._update_notification_time(account.id, "blocked")
 
     async def notify_disabled(self, account: Account, reason: str):
         """Уведомление об отключении аккаунта"""
-        if not await self._should_notify(account.id, 'disabled'):
+        if not await self._should_notify(account.id, "disabled"):
             return
 
         message = (
@@ -50,11 +51,11 @@ class AccountNotifier:
         )
 
         await self._send_notification(message)
-        self._update_notification_time(account.id, 'disabled')
+        self._update_notification_time(account.id, "disabled")
 
     async def notify_limit_reached(self, account: Account):
         """Уведомление о достижении лимита сообщений"""
-        if not await self._should_notify(account.id, 'limit'):
+        if not await self._should_notify(account.id, "limit"):
             return
 
         message = (
@@ -65,7 +66,7 @@ class AccountNotifier:
         )
 
         await self._send_notification(message)
-        self._update_notification_time(account.id, 'limit')
+        self._update_notification_time(account.id, "limit")
 
     async def notify_status_report(self, stats: dict):
         """Отправка ежедневного отчета о состоянии аккаунтов"""

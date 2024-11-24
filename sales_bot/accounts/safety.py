@@ -1,9 +1,10 @@
 import time
-from datetime import datetime, timedelta
 from typing import Dict
 
 from sales_bot.config import MIN_MESSAGE_DELAY
+
 from .models import Account
+
 
 class AccountSafety:
     def __init__(self):

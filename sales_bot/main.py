@@ -1,9 +1,11 @@
 import asyncio
 import logging
+
 from bot.client import app
 from scheduler import AccountScheduler
 
 logger = logging.getLogger(__name__)
+
 
 async def main():
     """Main application entry point"""
@@ -27,6 +29,7 @@ async def main():
     except Exception as e:
         logger.error(f"Error in main: {e}")
         raise
+
 
 if __name__ == "__main__":
     asyncio.run(main())

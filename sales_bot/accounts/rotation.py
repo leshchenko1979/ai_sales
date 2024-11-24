@@ -1,12 +1,13 @@
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import List
 
 from .models import Account, AccountStatus
 from .monitoring import AccountMonitor
 from .notifications import AccountNotifier
 
 logger = logging.getLogger(__name__)
+
 
 class AccountRotator:
     def __init__(self, db):
@@ -20,20 +21,16 @@ class AccountRotator:
         - Включает отдохнувшие аккаунты
         - Отключает уставшие аккаунты
         """
-        stats = {
-            'enabled': 0,
-            'disabled': 0,
-            'errors': 0
-        }
+        stats = {"enabled": 0, "disabled": 0, "errors": 0}
 
         try:
             # Включаем отдохнувшие аккаунты
             enabled = await self._enable_rested_accounts()
-            stats['enabled'] = len(enabled)
+            stats["enabled"] = len(enabled)
 
             # Отключаем уставшие аккаунты
             disabled = await self._disable_tired_accounts()
-            stats['disabled'] = len(disabled)
+            stats["disabled"] = len(disabled)
 
             # Уведомляем о результатах
             if enabled or disabled:
@@ -43,13 +40,15 @@ class AccountRotator:
 
         except Exception as e:
             logger.error(f"Error in rotate_accounts: {e}")
-            stats['errors'] += 1
+            stats["errors"] += 1
             return stats
 
     async def _enable_rested_accounts(self) -> List[Account]:
         """Включает аккаунты, которые достаточно отдохнули"""
         # Получаем отключенные аккаунты
-        disabled_accounts = await self.db.queries.get_accounts_by_status(AccountStatus.DISABLED.value)
+        disabled_accounts = await self.db.queries.get_accounts_by_status(
+            AccountStatus.DISABLED.value
+        )
         enabled_accounts = []
 
         for account in disabled_accounts:
@@ -64,8 +63,7 @@ class AccountRotator:
                 if await self.monitor.check_account(account):
                     # Включаем аккаунт
                     await self.db.queries.update_account_status_by_id(
-                        account.id,
-                        AccountStatus.ACTIVE.value
+                        account.id, AccountStatus.ACTIVE.value
                     )
                     enabled_accounts.append(account)
                     logger.info(f"Enabled account {account.phone}")
@@ -78,7 +76,9 @@ class AccountRotator:
     async def _disable_tired_accounts(self) -> List[Account]:
         """Отключает аккаунты, которые много работали"""
         # Получаем активные аккаунты
-        active_accounts = await self.db.queries.get_accounts_by_status(AccountStatus.ACTIVE.value)
+        active_accounts = await self.db.queries.get_accounts_by_status(
+            AccountStatus.ACTIVE.value
+        )
         disabled_accounts = []
 
         for account in active_accounts:
@@ -100,8 +100,7 @@ class AccountRotator:
                 if should_disable:
                     # Отключаем аккаунт
                     await self.db.queries.update_account_status_by_id(
-                        account.id,
-                        AccountStatus.DISABLED.value
+                        account.id, AccountStatus.DISABLED.value
                     )
                     disabled_accounts.append(account)
                     logger.info(f"Disabled account {account.phone}: {reason}")
@@ -111,7 +110,9 @@ class AccountRotator:
 
         return disabled_accounts
 
-    async def _notify_rotation_results(self, enabled: List[Account], disabled: List[Account]):
+    async def _notify_rotation_results(
+        self, enabled: List[Account], disabled: List[Account]
+    ):
         """Отправляет уведомление о результатах ротации"""
         if not enabled and not disabled:
             return

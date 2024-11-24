@@ -1,7 +1,9 @@
 import logging
 import os
 from logging.handlers import RotatingFileHandler
-from config import LOG_LEVEL, LOG_FILE
+
+from config import LOG_FILE, LOG_LEVEL
+
 
 def setup_logging():
     """Настройка логирования"""
@@ -10,14 +12,12 @@ def setup_logging():
 
     # Настраиваем формат
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     # Настраиваем файловый обработчик с ротацией
     file_handler = RotatingFileHandler(
-        LOG_FILE,
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
+        LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
     )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)  # В файл пишем все логи

@@ -1,31 +1,37 @@
 import logging
 from typing import Optional
-from pyrogram import filters
-from .client import app
-from db.queries import get_db
-from db.models import Dialog, Message
+
 from accounts.manager import AccountManager
-from .gpt import generate_initial_message, generate_response, check_qualification
+from db.models import Dialog, Message
+from db.queries import get_db
+from pyrogram import filters
+
+from .client import app
+from .gpt import check_qualification, generate_initial_message, generate_response
 
 logger = logging.getLogger(__name__)
 
+
 async def get_active_dialog(db, username: str) -> Optional[Dialog]:
     """Получение активного диалога с пользователем"""
-    return db.query(Dialog).filter(
-        Dialog.target_username == username,
-        Dialog.status == 'active'
-    ).first()
+    return (
+        db.query(Dialog)
+        .filter(Dialog.target_username == username, Dialog.status == "active")
+        .first()
+    )
+
 
 async def get_dialog_history(db, dialog_id: int) -> list:
     """Получение истории диалога"""
-    messages = db.query(Message).filter(
-        Message.dialog_id == dialog_id
-    ).order_by(Message.timestamp).all()
+    messages = (
+        db.query(Message)
+        .filter(Message.dialog_id == dialog_id)
+        .order_by(Message.timestamp)
+        .all()
+    )
 
-    return [
-        {'direction': msg.direction, 'content': msg.content}
-        for msg in messages
-    ]
+    return [{"direction": msg.direction, "content": msg.content} for msg in messages]
+
 
 async def save_message(db, dialog_id: int, direction: str, content: str):
     """Сохранение сообщения"""
@@ -33,7 +39,12 @@ async def save_message(db, dialog_id: int, direction: str, content: str):
     db.add(message)
     db.commit()
 
-@app.on_message(filters.private & ~filters.command(["start", "stop", "list", "view", "export", "export_all"]) & ~filters.me)
+
+@app.on_message(
+    filters.private
+    & ~filters.command(["start", "stop", "list", "view", "export", "export_all"])
+    & ~filters.me
+)
 async def message_handler(client, message):
     """Handle incoming messages"""
     try:
@@ -60,10 +71,12 @@ async def message_handler(client, message):
 
             # Generate and send response
             if qualified:
-                response = ("Отлично! Вы соответствуете нашим критериям. "
-                          "Давайте организуем звонок с менеджером для обсуждения деталей. "
-                          "В какое время вам удобно пообщаться?")
-                dialog.status = 'qualified'
+                response = (
+                    "Отлично! Вы соответствуете нашим критериям. "
+                    "Давайте организуем звонок с менеджером для обсуждения деталей. "
+                    "В какое время вам удобно пообщаться?"
+                )
+                dialog.status = "qualified"
                 db.commit()
             else:
                 response = await generate_response(history, message_text)
@@ -74,7 +87,9 @@ async def message_handler(client, message):
             # Get available account (preferably the same one that was used before)
             account = None
             if dialog.account_id:
-                account = await account_manager.queries.get_account_by_id(dialog.account_id)
+                account = await account_manager.queries.get_account_by_id(
+                    dialog.account_id
+                )
                 if not account or not account.is_available:
                     account = await account_manager.get_available_account()
             else:
@@ -106,6 +121,7 @@ async def message_handler(client, message):
             "Извините, произошла техническая ошибка. Пожалуйста, попробуйте позже."
         )
 
+
 async def start_dialog_with_user(username: str) -> bool:
     """Начало диалога с пользователем"""
     try:
@@ -127,16 +143,16 @@ async def start_dialog_with_user(username: str) -> bool:
             initial_message = await generate_initial_message()
 
             # Пробуем отправить сообщение
-            success = await account_manager.send_message(account, username, initial_message)
+            success = await account_manager.send_message(
+                account, username, initial_message
+            )
             if not success:
                 logger.error(f"Could not send message to @{username}")
                 return False
 
             # Создаем новый диалог
             dialog = Dialog(
-                account_id=account.id,
-                target_username=username,
-                status='active'
+                account_id=account.id, target_username=username, status="active"
             )
             db.add(dialog)
             db.commit()

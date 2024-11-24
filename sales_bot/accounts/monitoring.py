@@ -1,18 +1,18 @@
 import logging
-from datetime import datetime, timedelta
-from typing import List, Optional
+
 from pyrogram.errors import (
-    UserDeactivated,
-    SessionRevoked,
     AuthKeyUnregistered,
-    UserDeactivatedBan
+    SessionRevoked,
+    UserDeactivated,
+    UserDeactivatedBan,
 )
 
-from .models import Account, AccountStatus
 from .client import AccountClient
+from .models import Account, AccountStatus
 from .notifications import AccountNotifier
 
 logger = logging.getLogger(__name__)
+
 
 class AccountMonitor:
     def __init__(self, db):
@@ -47,8 +47,12 @@ class AccountMonitor:
             self._error_counts.pop(account.id, None)
             return True
 
-        except (UserDeactivated, SessionRevoked,
-                AuthKeyUnregistered, UserDeactivatedBan) as e:
+        except (
+            UserDeactivated,
+            SessionRevoked,
+            AuthKeyUnregistered,
+            UserDeactivatedBan,
+        ) as e:
             # Явные признаки блокировки
             logger.error(f"Account {account.phone} is blocked: {e}")
             await self._mark_account_blocked(account.id, str(e))
@@ -62,7 +66,9 @@ class AccountMonitor:
             logger.warning(f"Error checking account {account.phone}: {e}")
 
             if error_count >= 3:
-                await self._mark_account_disabled(account.id, f"3 consecutive errors: {e}")
+                await self._mark_account_disabled(
+                    account.id, f"3 consecutive errors: {e}"
+                )
                 return False
 
             return False
@@ -75,23 +81,18 @@ class AccountMonitor:
         Проверяет все активные аккаунты
         Возвращает статистику проверки
         """
-        stats = {
-            'total': 0,
-            'active': 0,
-            'disabled': 0,
-            'blocked': 0
-        }
+        stats = {"total": 0, "active": 0, "disabled": 0, "blocked": 0}
 
         accounts = await self.db.queries.get_active_accounts()
-        stats['total'] = len(accounts)
+        stats["total"] = len(accounts)
 
         for account in accounts:
             if await self.check_account(account):
-                stats['active'] += 1
+                stats["active"] += 1
             elif account.status == AccountStatus.BLOCKED:
-                stats['blocked'] += 1
+                stats["blocked"] += 1
             else:
-                stats['disabled'] += 1
+                stats["disabled"] += 1
 
         # Отправляем отчет
         await self.notifier.notify_status_report(stats)
@@ -102,8 +103,7 @@ class AccountMonitor:
         account = await self.db.queries.get_account_by_id(account_id)
         if account:
             await self.db.queries.update_account_status_by_id(
-                account_id,
-                AccountStatus.BLOCKED.value
+                account_id, AccountStatus.BLOCKED.value
             )
             await self.notifier.notify_blocked(account, reason)
             self._error_counts.pop(account_id, None)
@@ -113,8 +113,7 @@ class AccountMonitor:
         account = await self.db.queries.get_account_by_id(account_id)
         if account:
             await self.db.queries.update_account_status_by_id(
-                account_id,
-                AccountStatus.DISABLED.value
+                account_id, AccountStatus.DISABLED.value
             )
             await self.notifier.notify_disabled(account, reason)
             self._error_counts.pop(account_id, None)
