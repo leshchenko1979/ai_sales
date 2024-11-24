@@ -3,6 +3,7 @@ import asyncio
 from config import LOG_LEVEL, LOG_FILE, API_ID, API_HASH, BOT_TOKEN
 from utils.logging import setup_logging
 from pyrogram import Client, filters
+from models import init_db
 
 # Import handlers
 from bot import commands, dialogs
@@ -29,11 +30,14 @@ def main():
     logger.info("Starting Sales Bot...")
 
     try:
+        # Initialize database
+        init_db()
+
         # Start the client
         app.run()
         logger.info("Bot started successfully")
     except Exception as e:
-        logger.error(f"Error running bot: {e}")
+        logger.error(f"Error running bot: {e}", exc_info=True)
 
 if __name__ == '__main__':
     main()

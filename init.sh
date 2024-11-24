@@ -12,8 +12,19 @@ fi
 # Создание базы данных
 echo "Создание базы данных..."
 if [ -f "init_db.sql" ]; then
-    # Выполняем SQL скрипт из текущей директории
+    # Запуск PostgreSQL если не запущен
+    sudo service postgresql start
+
+    # Выполняем SQL скрипт
     sudo -u postgres psql -f "$(pwd)/init_db.sql"
+
+    # Проверка результата
+    if [ $? -eq 0 ]; then
+        echo "База данных успешно создана"
+    else
+        echo "Ошибка при создании базы данных"
+        exit 1
+    fi
 else
     echo "Ошибка: Файл init_db.sql не найден в текущей директории"
     exit 1

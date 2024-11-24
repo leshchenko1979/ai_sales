@@ -1,26 +1,30 @@
--- Создание базы данных
-CREATE DATABASE sales_bot;
+-- Drop existing database and user if they exist
+DROP DATABASE IF EXISTS sales_bot;
+DROP USER IF EXISTS sales_bot;
 
--- Подключение к базе
+-- Create user and database
+CREATE USER sales_bot WITH PASSWORD 'sales_bot';
+CREATE DATABASE sales_bot OWNER sales_bot;
+
+-- Connect to the new database
 \c sales_bot
 
--- Создание таблиц
+-- Create tables
 CREATE TABLE dialogs (
     id BIGSERIAL PRIMARY KEY,
     target_username TEXT NOT NULL,
-    status TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE messages (
     id BIGSERIAL PRIMARY KEY,
     dialog_id BIGINT REFERENCES dialogs(id),
-    direction TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('in', 'out')),
     content TEXT NOT NULL,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Создание индексов
-CREATE INDEX idx_messages_dialog_id ON messages(dialog_id);
-CREATE INDEX idx_dialogs_status ON dialogs(status);
-CREATE INDEX idx_dialogs_username ON dialogs(target_username);
+-- Grant privileges
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO sales_bot;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO sales_bot;
