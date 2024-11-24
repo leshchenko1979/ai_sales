@@ -92,8 +92,8 @@ After=network.target postgresql.service
 [Service]
 Type=simple
 User=sales_bot
-WorkingDirectory=/opt/sales_bot
-ExecStart=/opt/sales_bot/venv/bin/python main.py
+WorkingDirectory=/home/sales_bot/sales_bot
+ExecStart=/home/sales_bot/sales_bot/venv/bin/python main.py
 Restart=always
 RestartSec=10
 

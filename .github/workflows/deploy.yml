@@ -44,6 +44,28 @@ jobs:
             --exclude '__pycache__' \
             ./ $DEPLOY_USER@$DEPLOY_HOST:~/sales_bot/
 
+      - name: Create and configure systemd service
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'sudo tee /etc/systemd/system/sales_bot.service << EOF
+          [Unit]
+          Description=Sales Bot
+          After=network.target postgresql.service
+
+          [Service]
+          Type=simple
+          User=sales_bot
+          WorkingDirectory=/home/sales_bot/sales_bot
+          ExecStart=/home/sales_bot/sales_bot/venv/bin/python main.py
+          Restart=always
+          RestartSec=10
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF'
+
       - name: Update and restart service
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -53,8 +75,9 @@ jobs:
           python3 -m venv venv && \
           source venv/bin/activate && \
           pip install -r requirements.txt && \
-          sudo systemctl stop sales_bot || true && \
-          sudo systemctl start sales_bot'
+          sudo systemctl daemon-reload && \
+          sudo systemctl enable sales_bot && \
+          sudo systemctl restart sales_bot'
 
       - name: Check service status
         env:
