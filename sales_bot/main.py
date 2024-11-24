@@ -1,9 +1,10 @@
 import logging
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from config import BOT_TOKEN, LOG_LEVEL, LOG_FILE
-from bot.commands import start_command, stop_command, list_command, view_command, export_command, export_all_command
-from bot.dialogs import message_handler
+from config import LOG_LEVEL, LOG_FILE
+from bot.client import client
 from utils.logging import setup_logging
+
+# Импортируем обработчики для их регистрации
+from bot import commands, dialogs
 
 async def main():
     # Настраиваем логирование
@@ -12,23 +13,12 @@ async def main():
 
     logger.info("Starting Sales Bot...")
 
-    # Создаем приложение
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # Регистрируем обработчики команд
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("stop", stop_command))
-    application.add_handler(CommandHandler("list", list_command))
-    application.add_handler(CommandHandler("view", view_command))
-    application.add_handler(CommandHandler("export", export_command))
-    application.add_handler(CommandHandler("export_all", export_all_command))
-
-    # Регистрируем обработчик сообщений
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    # Запускаем клиента
+    await client.start()
+    logger.info("Bot started successfully")
 
     # Запускаем бота
-    logger.info("Bot started successfully")
-    await application.run_polling()
+    await client.run_until_disconnected()
 
 if __name__ == '__main__':
     import asyncio

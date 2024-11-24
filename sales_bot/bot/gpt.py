@@ -1,11 +1,16 @@
 import logging
-import openai
-from config import OPENAI_API_KEY, GPT_MODEL
+import json
+import aiohttp
+from config import (
+    OPENROUTER_API_KEY,
+    OPENROUTER_MODEL,
+    APP_NAME,
+    APP_URL
+)
 
 logger = logging.getLogger(__name__)
 
-# Инициализация OpenAI
-openai.api_key = OPENAI_API_KEY
+API_BASE = "https://openrouter.ai/api/v1"
 
 # Базовые промпты
 INITIAL_PROMPT = """Ты - менеджер по продажам инвестиционных продуктов.
@@ -29,17 +34,48 @@ RESPONSE_PROMPT = """История диалога:
 3. Стремись узнать размер и сроки инвестиций
 4. Предложи звонок только если клиент соответствует критериям"""
 
+async def make_request(messages: list) -> str:
+    """Выполнение запроса к OpenRouter API"""
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "HTTP-Referer": APP_URL,
+        "X-Title": APP_NAME,
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "model": OPENROUTER_MODEL,
+        "messages": messages
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{API_BASE}/chat/completions",
+                headers=headers,
+                json=data
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    logger.error(f"OpenRouter API error: {error_text}")
+                    raise Exception(f"API returned status {response.status}")
+
+                result = await response.json()
+                return result['choices'][0]['message']['content']
+
+    except Exception as e:
+        logger.error(f"Error making request to OpenRouter: {e}")
+        raise
+
 async def generate_initial_message() -> str:
     """Генерация первого сообщения"""
     try:
-        response = await openai.ChatCompletion.acreate(
-            model=GPT_MODEL,
-            messages=[
-                {"role": "system", "content": INITIAL_PROMPT},
-                {"role": "user", "content": "Сгенерируй первое сообщение для начала диалога"}
-            ]
-        )
-        return response.choices[0].message.content
+        messages = [
+            {"role": "system", "content": INITIAL_PROMPT},
+            {"role": "user", "content": "Сгенерируй первое сообщение для начала диалога"}
+        ]
+
+        return await make_request(messages)
     except Exception as e:
         logger.error(f"Error generating initial message: {e}")
         return "Здравствуйте! Я представляю инвестиционную компанию. Могу я задать вам несколько вопросов?"
@@ -59,14 +95,12 @@ async def generate_response(dialog_history: list, last_message: str) -> str:
             last_message=last_message
         )
 
-        response = await openai.ChatCompletion.acreate(
-            model=GPT_MODEL,
-            messages=[
-                {"role": "system", "content": INITIAL_PROMPT},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content
+        messages = [
+            {"role": "system", "content": INITIAL_PROMPT},
+            {"role": "user", "content": prompt}
+        ]
+
+        return await make_request(messages)
     except Exception as e:
         logger.error(f"Error generating response: {e}")
         return "Извините, произошла техническая ошибка. Давайте продолжим позже."
@@ -90,15 +124,18 @@ async def check_qualification(dialog_history: list) -> tuple[bool, str]:
 QUALIFIED: да/нет
 REASON: причина"""
 
-        response = await openai.ChatCompletion.acreate(
-            model=GPT_MODEL,
-            messages=[
-                {"role": "system", "content": "Ты - аналитик, оценивающий диалоги с потенциальными инвесторами."},
-                {"role": "user", "content": prompt}
-            ]
-        )
+        messages = [
+            {
+                "role": "system",
+                "content": "Ты - аналитик, оценивающий диалоги с потенциальными инвесторами."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
 
-        result = response.choices[0].message.content
+        result = await make_request(messages)
         qualified = "QUALIFIED: да" in result.lower()
         reason = result.split("REASON:")[1].strip() if "REASON:" in result else "Причина не указана"
 

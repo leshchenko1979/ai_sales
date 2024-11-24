@@ -11,7 +11,13 @@ fi
 
 # Создание базы данных
 echo "Создание базы данных..."
-sudo -u postgres psql -f init_db.sql
+if [ -f "init_db.sql" ]; then
+    # Выполняем SQL скрипт из текущей директории
+    sudo -u postgres psql -f "$(pwd)/init_db.sql"
+else
+    echo "Ошибка: Файл init_db.sql не найден в текущей директории"
+    exit 1
+fi
 
 # Создание виртуального окружения
 echo "Настройка Python окружения..."

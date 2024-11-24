@@ -1,72 +1,73 @@
 import logging
-from telegram import Update
-from telegram.ext import ContextTypes
+from telethon import events
+from .client import client
 from config import ADMIN_TELEGRAM_ID
 from db.queries import create_dialog, get_db
+from db.models import Dialog, Message
 from utils.export import export_dialog, export_all_dialogs
 
 logger = logging.getLogger(__name__)
 
-async def check_admin(update: Update):
+async def check_admin(event):
     """Проверка прав администратора"""
-    if update.effective_user.id != ADMIN_TELEGRAM_ID:
-        await update.message.reply_text("У вас нет прав для выполнения этой команды.")
+    if event.sender_id != ADMIN_TELEGRAM_ID:
+        await event.respond("У вас нет прав для выполнения этой команды.")
         return False
     return True
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@client.on(events.NewMessage(pattern='/start'))
+async def start_command(event):
     """Обработчик команды /start @username"""
-    if not await check_admin(update):
+    if not await check_admin(event):
         return
 
     try:
-        # Получаем username из аргументов команды
-        args = context.args
-        if not args or len(args) != 1 or not args[0].startswith('@'):
-            await update.message.reply_text("Использование: /start @username")
+        args = event.raw_text.split()
+        if len(args) != 2 or not args[1].startswith('@'):
+            await event.respond("Использование: /start @username")
             return
 
-        username = args[0][1:]  # Убираем @ из начала
+        username = args[1][1:]  # Убираем @ из начала
         dialog_id = await create_dialog(username)
 
-        await update.message.reply_text(f"Диалог {dialog_id} с пользователем @{username} начат.")
+        await event.respond(f"Диалог {dialog_id} с пользователем @{username} начат.")
         logger.info(f"Started dialog {dialog_id} with @{username}")
 
     except Exception as e:
         logger.error(f"Error in start_command: {e}")
-        await update.message.reply_text("Произошла ошибка при создании диалога.")
+        await event.respond("Произошла ошибка при создании диалога.")
 
-async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def stop_command(event):
     """Обработчик команды /stop N"""
-    if not await check_admin(update):
+    if not await check_admin(event):
         return
 
     try:
-        args = context.args
-        if not args or len(args) != 1 or not args[0].isdigit():
-            await update.message.reply_text("Использование: /stop N, где N - номер диалога")
+        args = event.raw_text.split()
+        if len(args) != 2 or not args[1].isdigit():
+            await event.respond("Использование: /stop N, где N - номер диалога")
             return
 
-        dialog_id = int(args[0])
+        dialog_id = int(args[1])
         async for db in get_db():
             dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
             if not dialog:
-                await update.message.reply_text(f"Диалог {dialog_id} не найден.")
+                await event.respond(f"Диалог {dialog_id} не найден.")
                 return
 
             dialog.status = 'stopped'
             db.commit()
 
-        await update.message.reply_text(f"Диалог {dialog_id} остановлен.")
+        await event.respond(f"Диалог {dialog_id} остановлен.")
         logger.info(f"Stopped dialog {dialog_id}")
 
     except Exception as e:
         logger.error(f"Error in stop_command: {e}")
-        await update.message.reply_text("Произошла ошибка при остановке диалога.")
+        await event.respond("Произошла ошибка при остановке диалога.")
 
-async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def list_command(event):
     """Обработчик команды /list"""
-    if not await check_admin(update):
+    if not await check_admin(event):
         return
 
     try:
@@ -74,36 +75,36 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dialogs = db.query(Dialog).filter(Dialog.status == 'active').all()
 
             if not dialogs:
-                await update.message.reply_text("Нет активных диалогов.")
+                await event.respond("Нет активных диалогов.")
                 return
 
             response = "Активные диалоги:\n"
             for dialog in dialogs:
                 response += f"ID: {dialog.id} - @{dialog.target_username}\n"
 
-            await update.message.reply_text(response)
+            await event.respond(response)
 
     except Exception as e:
         logger.error(f"Error in list_command: {e}")
-        await update.message.reply_text("Произошла ошибка при получении списка диалогов.")
+        await event.respond("Произошла ошибка при получении списка диалогов.")
 
-async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def view_command(event):
     """Обработчик команды /view N"""
-    if not await check_admin(update):
+    if not await check_admin(event):
         return
 
     try:
-        args = context.args
-        if not args or len(args) != 1 or not args[0].isdigit():
-            await update.message.reply_text("Использование: /view N, где N - номер диалога")
+        args = event.raw_text.split()
+        if len(args) != 2 or not args[1].isdigit():
+            await event.respond("Использование: /view N, где N - номер диалога")
             return
 
-        dialog_id = int(args[0])
+        dialog_id = int(args[1])
         async for db in get_db():
             messages = db.query(Message).filter(Message.dialog_id == dialog_id).order_by(Message.timestamp).all()
 
             if not messages:
-                await update.message.reply_text(f"Сообщения для диалога {dialog_id} не найдены.")
+                await event.respond(f"Сообщения для диалога {dialog_id} не найдены.")
                 return
 
             response = f"Диалог {dialog_id}:\n\n"
@@ -111,39 +112,39 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 direction = "→" if msg.direction == "out" else "←"
                 response += f"{direction} {msg.content}\n"
 
-            await update.message.reply_text(response)
+            await event.respond(response)
 
     except Exception as e:
         logger.error(f"Error in view_command: {e}")
-        await update.message.reply_text("Произошла ошибка при просмотре диалога.")
+        await event.respond("Произошла ошибка при просмотре диалога.")
 
-async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def export_command(event):
     """Обработчик команды /export N"""
-    if not await check_admin(update):
+    if not await check_admin(event):
         return
 
     try:
-        args = context.args
-        if not args or len(args) != 1 or not args[0].isdigit():
-            await update.message.reply_text("Использование: /export N, где N - номер диалога")
+        args = event.raw_text.split()
+        if len(args) != 2 or not args[1].isdigit():
+            await event.respond("Использование: /export N, где N - номер диалога")
             return
 
-        dialog_id = int(args[0])
+        dialog_id = int(args[1])
         file_path = await export_dialog(dialog_id)
 
         if file_path:
             with open(file_path, 'rb') as file:
-                await update.message.reply_document(file)
+                await event.respond_file(file)
         else:
-            await update.message.reply_text("Диалог не найден или пуст.")
+            await event.respond("Диалог не найден или пуст.")
 
     except Exception as e:
         logger.error(f"Error in export_command: {e}")
-        await update.message.reply_text("Произошла ошибка при экспорте диалога.")
+        await event.respond("Произошла ошибка при экспорте диалога.")
 
-async def export_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def export_all_command(event):
     """Обработчик команды /export_all"""
-    if not await check_admin(update):
+    if not await check_admin(event):
         return
 
     try:
@@ -151,10 +152,10 @@ async def export_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         if file_path:
             with open(file_path, 'rb') as file:
-                await update.message.reply_document(file)
+                await event.respond_file(file)
         else:
-            await update.message.reply_text("Нет диалогов для экспорта.")
+            await event.respond("Нет диалогов для экспорта.")
 
     except Exception as e:
         logger.error(f"Error in export_all_command: {e}")
-        await update.message.reply_text("Произошла ошибка при экспорте диалогов.")
+        await event.respond("Произошла ошибка при экспорте диалогов.")
