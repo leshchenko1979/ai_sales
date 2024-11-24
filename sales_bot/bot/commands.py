@@ -37,7 +37,8 @@ async def start_command(client, message):
         logger.error(f"Error in start_command: {e}")
         await message.reply_text("Произошла ошибка при создании диалога.")
 
-async def stop_command(message):
+@app.on_message(filters.command("stop") & filters.private)
+async def stop_command(client, message):
     """Обработчик команды /stop N"""
     if not await check_admin(message):
         return
@@ -65,7 +66,8 @@ async def stop_command(message):
         logger.error(f"Error in stop_command: {e}")
         await message.reply_text("Произошла ошибка при остановке диалога.")
 
-async def list_command(message):
+@app.on_message(filters.command("list") & filters.private)
+async def list_command(client, message):
     """Обработчик команды /list"""
     if not await check_admin(message):
         return
@@ -88,7 +90,8 @@ async def list_command(message):
         logger.error(f"Error in list_command: {e}")
         await message.reply_text("Произошла ошибка при получении списка диалогов.")
 
-async def view_command(message):
+@app.on_message(filters.command("view") & filters.private)
+async def view_command(client, message):
     """Обработчик команды /view N"""
     if not await check_admin(message):
         return
@@ -118,7 +121,8 @@ async def view_command(message):
         logger.error(f"Error in view_command: {e}")
         await message.reply_text("Произошла ошибка при просмотре диалога.")
 
-async def export_command(message):
+@app.on_message(filters.command("export") & filters.private)
+async def export_command(client, message):
     """Обработчик команды /export N"""
     if not await check_admin(message):
         return
@@ -142,7 +146,8 @@ async def export_command(message):
         logger.error(f"Error in export_command: {e}")
         await message.reply_text("Произошла ошибка при экспорте диалога.")
 
-async def export_all_command(message):
+@app.on_message(filters.command("export_all") & filters.private)
+async def export_all_command(client, message):
     """Обработчик команды /export_all"""
     if not await check_admin(message):
         return
@@ -159,3 +164,33 @@ async def export_all_command(message):
     except Exception as e:
         logger.error(f"Error in export_all_command: {e}")
         await message.reply_text("Произошла ошибка при экспорте диалогов.")
+
+@app.on_message(filters.command("help") & filters.private)
+async def help_command(client, message):
+    """Handler for /help command"""
+    if not await check_admin(message):
+        return
+
+    try:
+        help_text = """
+Доступные команды:
+
+Управление диалогами:
+/start @username - начать диалог с пользователем
+/stop N - остановить диалог номер N
+/list - показать список активных диалогов
+
+Просмотр и выгрузка:
+/view N - просмотр диалога номер N
+/export N - выгрузка диалога номер N в файл
+/export_all - выгрузка всех диалогов
+
+Помощь:
+/help - показать это сообщение
+"""
+        await message.reply_text(help_text)
+        logger.info("Help command executed")
+
+    except Exception as e:
+        logger.error(f"Error in help_command: {e}")
+        await message.reply_text("Произошла ошибка при выводе справки.")
