@@ -29,9 +29,13 @@
    ├── config.py           # Конфигурация приложения
    ├── main.py            # Точка входа
    ├── bot/               # Логика бота
-   │   ├── commands.py    # Обработчики команд
+   │   ├── commands.py    # Обработчики команд админ-бота
    │   ├── dialogs.py     # Управление диалогами
    │   └── gpt.py         # Интеграция с GPT
+   ├── accounts/          # Управление аккаунтами
+   │   ├── manager.py     # Менеджер аккаунтов
+   │   ├── client.py      # MTProto клиент
+   │   └── safety.py      # Защита аккаунтов
    ├── db/                # Работа с базой данных
    │   ├── models.py      # Модели данных
    │   └── queries.py     # SQL запросы
@@ -42,9 +46,20 @@
 
 2. **База данных**
    ```sql
+   -- Аккаунты
+   accounts (
+     id: bigserial primary key,
+     phone: text,
+     session_string: text,
+     status: text,
+     last_used: timestamp,
+     daily_messages: integer
+   )
+
    -- Диалоги
    dialogs (
      id: bigserial primary key,
+     account_id: bigint,
      target_username: text,
      status: text,
      created_at: timestamp

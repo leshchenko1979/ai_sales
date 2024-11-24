@@ -1,13 +1,15 @@
 import logging
+from typing import Optional
 from pyrogram import filters
 from .client import app
-from db.queries import get_db, save_message
+from db.queries import get_db
 from db.models import Dialog, Message
+from accounts.manager import AccountManager
 from .gpt import generate_initial_message, generate_response, check_qualification
 
 logger = logging.getLogger(__name__)
 
-async def get_active_dialog(db, username: str) -> Dialog:
+async def get_active_dialog(db, username: str) -> Optional[Dialog]:
     """Получение активного диалога с пользователем"""
     return db.query(Dialog).filter(
         Dialog.target_username == username,
@@ -24,6 +26,12 @@ async def get_dialog_history(db, dialog_id: int) -> list:
         {'direction': msg.direction, 'content': msg.content}
         for msg in messages
     ]
+
+async def save_message(db, dialog_id: int, direction: str, content: str):
+    """Сохранение сообщения"""
+    message = Message(dialog_id=dialog_id, direction=direction, content=content)
+    db.add(message)
+    db.commit()
 
 @app.on_message(filters.private & ~filters.command(["start", "stop", "list", "view", "export", "export_all"]) & ~filters.me)
 async def message_handler(client, message):
@@ -42,7 +50,7 @@ async def message_handler(client, message):
 
             # Save incoming message
             message_text = message.text
-            await save_message(dialog.id, "in", message_text)
+            await save_message(db, dialog.id, "in", message_text)
 
             # Get dialog history
             history = await get_dialog_history(db, dialog.id)
@@ -60,11 +68,34 @@ async def message_handler(client, message):
             else:
                 response = await generate_response(history, message_text)
 
-            # Save and send response
-            await save_message(dialog.id, "out", response)
-            await message.reply_text(response)
+            # Get account manager
+            account_manager = AccountManager(db)
 
-            logger.info(f"Processed message in dialog {dialog.id} with @{username}")
+            # Get available account (preferably the same one that was used before)
+            account = None
+            if dialog.account_id:
+                account = await account_manager.queries.get_account_by_id(dialog.account_id)
+                if not account or not account.is_available:
+                    account = await account_manager.get_available_account()
+            else:
+                account = await account_manager.get_available_account()
+
+            if not account:
+                logger.error(f"No available accounts to respond in dialog {dialog.id}")
+                return
+
+            # Update dialog with account if needed
+            if not dialog.account_id:
+                dialog.account_id = account.id
+                db.commit()
+
+            # Send and save response
+            success = await account_manager.send_message(account, username, response)
+            if success:
+                await save_message(db, dialog.id, "out", response)
+                logger.info(f"Processed message in dialog {dialog.id} with @{username}")
+            else:
+                logger.error(f"Failed to send message in dialog {dialog.id}")
 
         finally:
             db.close()
@@ -78,37 +109,46 @@ async def message_handler(client, message):
 async def start_dialog_with_user(username: str) -> bool:
     """Начало диалога с пользователем"""
     try:
-        # Генерируем первое сообщение
-        initial_message = await generate_initial_message()
-
         db = await get_db()
-
-        # Проверяем наличие активного диалога
-        existing_dialog = await get_active_dialog(db, username)
-        if existing_dialog:
-            return False
-
         try:
-            # Пробуем получить пользователя и отправить сообщение
-            user = await app.get_input_entity(f"@{username}")
-            await app.send_message(user, initial_message)
-        except ValueError as e:
-            logger.error(f"Could not find user @{username}: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Could not send message to @{username}: {e}")
-            return False
+            # Проверяем наличие активного диалога
+            existing_dialog = await get_active_dialog(db, username)
+            if existing_dialog:
+                return False
 
-        # Создаем новый диалог только если сообщене отправлено успешно
-        dialog = Dialog(target_username=username, status='active')
-        db.add(dialog)
-        db.commit()
+            # Получаем доступный аккаунт
+            account_manager = AccountManager(db)
+            account = await account_manager.get_available_account()
+            if not account:
+                logger.error(f"No available accounts to start dialog with @{username}")
+                return False
 
-        # Сохраняем первое сообщение
-        await save_message(dialog.id, "out", initial_message)
+            # Генерируем первое сообщение
+            initial_message = await generate_initial_message()
 
-        logger.info(f"Successfully started dialog with @{username}")
-        return True
+            # Пробуем отправить сообщение
+            success = await account_manager.send_message(account, username, initial_message)
+            if not success:
+                logger.error(f"Could not send message to @{username}")
+                return False
+
+            # Создаем новый диалог
+            dialog = Dialog(
+                account_id=account.id,
+                target_username=username,
+                status='active'
+            )
+            db.add(dialog)
+            db.commit()
+
+            # Сохраняем первое сообщение
+            await save_message(db, dialog.id, "out", initial_message)
+
+            logger.info(f"Successfully started dialog with @{username}")
+            return True
+
+        finally:
+            db.close()
 
     except Exception as e:
         logger.error(f"Error starting dialog with @{username}: {e}")

@@ -7,11 +7,12 @@
 - **Хостинг**: VPS (например, Selectel)
 - **Режим работы**: Long polling (постоянно запущенный процесс)
 - **Функции**:
-  - Обработка команд администратора
-  - Ведение диалогов с пользователями
+  - Обработка команд администратора через бота
+  - Ведение диалогов через пользовательские аккаунты
   - Интеграция с GPT для генерации ответов
 - **Коммуникации**:
-  - Telegram API (long polling)
+  - Telegram API (MTProto для пользовательских аккаунтов)
+  - Telegram Bot API (для админки)
   - OpenAI API (генерация ответов)
   - База данных (хранение данных)
 - **Запуск и поддержка**:
@@ -24,9 +25,20 @@
 - **Хостинг**: Тот же VPS
 - **Основные таблицы**:
   ```sql
+  -- Аккаунты для рассылки
+  accounts (
+    id: bigserial primary key,
+    phone: text,
+    session_string: text,
+    status: text,
+    last_used: timestamp,
+    daily_messages: integer
+  )
+
   -- Диалоги
   dialogs (
     id: bigserial primary key,
+    account_id: bigint,
     target_username: text,
     status: text,
     created_at: timestamp
@@ -46,9 +58,10 @@
 
 ```mermaid
 graph TD
-A[Администратор] -->|Telegram команды| B[Python-приложение]
-B -->|Сообщения| C[Пользователь]
-C -->|Ответы| B
+A[Администратор] -->|Telegram бот| B[Python-приложение]
+B -->|MTProto API| F[Пользовательские аккаунты]
+F -->|Сообщения| C[Целевые пользователи]
+C -->|Ответы| F
 B -->|Запросы| D[OpenAI API]
 D -->|Ответы| B
 B -->|CRUD| E[База данных]
@@ -56,6 +69,11 @@ B -->|CRUD| E[База данных]
 
 ## Административные команды в Telegram
 ```
+# Управление аккаунтами
+/add_account phone - добавить новый аккаунт
+/list_accounts - список аккаунтов
+/disable_account phone - отключить аккаунт
+
 # Управление диалогами
 /start @username - начать диалог
 /stop N - остановить диалог номер N
@@ -69,22 +87,24 @@ B -->|CRUD| E[База данных]
 
 ## Конфигурация
 
-Конфигурация осуществляется через переменные окружения:
-
 ```bash
 # Telegram settings
 export API_ID=123456
 export API_HASH="your_api_hash"
-export BOT_TOKEN="your_bot_token"
+export BOT_TOKEN="your_bot_token"  # для админ-бота
 export ADMIN_TELEGRAM_ID=123456789
+
+# Account settings
+export MAX_DAILY_MESSAGES=20  # лимит сообщений в день на аккаунт
+export MIN_MESSAGE_DELAY=30   # минимальная задержка между сообщениями в секундах
 
 # OpenRouter settings
 export OPENROUTER_API_KEY="your_openrouter_key"
 
-# Database settings (optional, has default)
+# Database settings
 export DATABASE_URL="postgresql://user:pass@localhost:5432/sales_bot"
 
-# Logging settings (optional, have defaults)
+# Logging settings
 export LOG_LEVEL="INFO"
 export LOG_FILE="/var/log/sales_bot/app.log"
 ```

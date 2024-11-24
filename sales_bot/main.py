@@ -1,36 +1,32 @@
+import asyncio
 import logging
-import os
-from config import LOG_LEVEL, LOG_FILE, API_ID, API_HASH, BOT_TOKEN
-from utils.logging import setup_logging
-from bot.client import init_client
+from bot.client import app
+from scheduler import AccountScheduler
 
-def cleanup_session():
-    """Remove old session files"""
-    session_file = "sales_bot.session"
-    if os.path.exists(session_file):
-        os.remove(session_file)
-        logging.info(f"Removed old session file: {session_file}")
+logger = logging.getLogger(__name__)
 
-def main():
-    # Setup logging
-    setup_logging()
-    logger = logging.getLogger(__name__)
-
-    logger.info("Starting Sales Bot...")
-
+async def main():
+    """Main application entry point"""
     try:
-        # Initialize the client
-        app = init_client(API_ID, API_HASH, BOT_TOKEN)
+        # Initialize scheduler
+        scheduler = AccountScheduler()
+        await scheduler.start()
 
-        # Import handlers
-        from bot import commands, dialogs
+        # Start bot
+        await app.start()
+        logger.info("Bot started")
 
-        # Run the client (handles start/stop automatically)
-        app.run()
+        # Wait for shutdown
+        try:
+            await app.idle()
+        finally:
+            # Cleanup
+            await scheduler.stop()
+            await app.stop()
 
-        logger.info("Bot started successfully")
     except Exception as e:
-        logger.error(f"Error running bot: {e}", exc_info=True)
+        logger.error(f"Error in main: {e}")
+        raise
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(main())
