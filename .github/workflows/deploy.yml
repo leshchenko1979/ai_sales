@@ -38,7 +38,6 @@ jobs:
           ls -la
           rsync -avz --delete ./sales_bot $DEPLOY_USER@$DEPLOY_HOST:~/
           rsync -avz --delete requirements.txt $DEPLOY_USER@$DEPLOY_HOST:~/
-          rsync -avz --delete .env $DEPLOY_USER@$DEPLOY_HOST:~/
 
           # Setup environment
           ssh $DEPLOY_USER@$DEPLOY_HOST '
