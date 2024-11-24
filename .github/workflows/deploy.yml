@@ -35,10 +35,9 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           # Deploy files
-          ls -la
           rsync -avz --delete ./sales_bot $DEPLOY_USER@$DEPLOY_HOST:~/
-          rsync -avz --delete requirements.txt $DEPLOY_USER@$DEPLOY_HOST:~/sales_bot
-
+          rsync -avz --delete requirements.txt $DEPLOY_USER@$DEPLOY_HOST:~/sales_bot/
+          ssh $DEPLOY_USER@$DEPLOY_HOST 'ls -la /home/sales_bot'
           # Setup environment
           ssh $DEPLOY_USER@$DEPLOY_HOST '
             sudo useradd -m -s /bin/bash sales_bot || true &&
