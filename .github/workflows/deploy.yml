@@ -12,8 +12,7 @@ jobs:
 
       - name: Setup deployment files
         run: |
-          # Create project structure
-          mkdir -p sales_bot/{bot,db,utils}
+          ls -la
 
           # Create .env file
           cat << EOF > sales_bot/.env
@@ -38,7 +37,8 @@ jobs:
           # Deploy files
           ls -la
           rsync -avz --delete ./sales_bot $DEPLOY_USER@$DEPLOY_HOST:~/
-          rsync -avz --delete ./requirements.txt $DEPLOY_USER@$DEPLOY_HOST:~/sales_bot/
+          rsync -avz --delete requirements.txt $DEPLOY_USER@$DEPLOY_HOST:~/
+          rsync -avz --delete .env $DEPLOY_USER@$DEPLOY_HOST:~/
 
           # Setup environment
           ssh $DEPLOY_USER@$DEPLOY_HOST '
