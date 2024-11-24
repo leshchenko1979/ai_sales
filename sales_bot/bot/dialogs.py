@@ -3,7 +3,7 @@ from typing import Optional
 
 from accounts.manager import AccountManager
 from db.models import Dialog, Message
-from db.queries import get_db
+from db.queries import DialogQueries, get_db
 from pyrogram import filters
 
 from .client import app
@@ -47,24 +47,24 @@ async def save_message(db, dialog_id: int, direction: str, content: str):
 )
 async def message_handler(client, message):
     """Handle incoming messages"""
-    try:
-        username = message.from_user.username
-        if not username:
-            return
+    username = message.from_user.username
+    if not username:
+        return
 
-        db = await get_db()
-        try:
+    try:
+        async with get_db() as db:
             # Check for active dialog
-            dialog = await get_active_dialog(db, username)
+            dialog_queries = DialogQueries(db)
+            dialog = await dialog_queries.get_active_dialog(username)
             if not dialog:
                 return
 
             # Save incoming message
             message_text = message.text
-            await save_message(db, dialog.id, "in", message_text)
+            await dialog_queries.save_message(dialog.id, "in", message_text)
 
             # Get dialog history
-            history = await get_dialog_history(db, dialog.id)
+            history = await dialog_queries.get_dialog_history(dialog.id)
 
             # Check qualification
             qualified, reason = await check_qualification(history)
@@ -112,9 +112,6 @@ async def message_handler(client, message):
             else:
                 logger.error(f"Failed to send message in dialog {dialog.id}")
 
-        finally:
-            db.close()
-
     except Exception as e:
         logger.error(f"Error in message_handler: {e}")
         await message.reply_text(
@@ -125,10 +122,10 @@ async def message_handler(client, message):
 async def start_dialog_with_user(username: str) -> bool:
     """Начало диалога с пользователем"""
     try:
-        db = await get_db()
-        try:
+        async with get_db() as db:
+            dialog_queries = DialogQueries(db)
             # Проверяем наличие активного диалога
-            existing_dialog = await get_active_dialog(db, username)
+            existing_dialog = await dialog_queries.get_active_dialog(username)
             if existing_dialog:
                 return False
 
@@ -162,9 +159,6 @@ async def start_dialog_with_user(username: str) -> bool:
 
             logger.info(f"Successfully started dialog with @{username}")
             return True
-
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error(f"Error starting dialog with @{username}: {e}")

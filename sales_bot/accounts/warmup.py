@@ -3,6 +3,8 @@ import logging
 import random
 from datetime import datetime
 
+from db.queries import AccountQueries, get_db
+
 from .client import AccountClient
 from .models import Account
 from .notifications import AccountNotifier
@@ -54,23 +56,30 @@ class AccountWarmup:
         """Прогрев новых аккаунтов"""
         stats = {"total": 0, "success": 0, "failed": 0}
 
-        # Получаем аккаунты для прогрева
-        accounts = await self.db.queries.get_accounts_for_warmup()
-        stats["total"] = len(accounts)
+        try:
+            async with get_db() as db:
+                account_queries = AccountQueries(db)
+                # Получаем аккаунты для прогрева
+                accounts = await account_queries.get_accounts_for_warmup()
+                stats["total"] = len(accounts)
 
-        for account in accounts:
-            try:
-                if await self.warmup_account(account):
-                    stats["success"] += 1
-                else:
-                    stats["failed"] += 1
-            except Exception as e:
-                logger.error(f"Failed to warmup account {account.phone}: {e}")
-                stats["failed"] += 1
+                for account in accounts:
+                    try:
+                        if await self.warmup_account(account):
+                            stats["success"] += 1
+                        else:
+                            stats["failed"] += 1
+                    except Exception as e:
+                        logger.error(f"Failed to warmup account {account.phone}: {e}")
+                        stats["failed"] += 1
 
-        # Отправляем отчет
-        await self._notify_warmup_results(stats)
-        return stats
+                # Отправляем отчет
+                await self._notify_warmup_results(stats)
+                return stats
+
+        except Exception as e:
+            logger.error(f"Error during warmup: {e}")
+            return stats
 
     async def _join_channels(self, client: AccountClient) -> bool:
         """Присоединение к каналам"""

@@ -1,6 +1,7 @@
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import AsyncGenerator, List, Optional
+from typing import List, Optional
 
 from config import DATABASE_URL
 from sqlalchemy import select, update
@@ -30,13 +31,19 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """Получение сессии базы данных"""
+@asynccontextmanager
+async def get_db():
+    """Get database session"""
+    if AsyncSessionLocal is None:
+        raise RuntimeError("Database is not initialized")
+
     async with AsyncSessionLocal() as session:
         try:
             yield session
-        finally:
-            await session.close()
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
 
 class AccountQueries:

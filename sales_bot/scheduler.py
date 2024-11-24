@@ -7,7 +7,7 @@ from accounts.monitoring import AccountMonitor
 from accounts.notifications import AccountNotifier
 from accounts.rotation import AccountRotator
 from accounts.warmup import AccountWarmup
-from db.queries import get_db
+from db.queries import AccountQueries, get_db
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +27,11 @@ class AccountScheduler:
             return
 
         # Initialize components
-        db = await get_db()
-        self.monitor = AccountMonitor(db)
-        self.rotator = AccountRotator(db)
-        self.warmup = AccountWarmup(db)
-        await self.monitor.start()
+        async with get_db() as db:
+            self.monitor = AccountMonitor(db)
+            self.rotator = AccountRotator(db)
+            self.warmup = AccountWarmup(db)
+            await self.monitor.start()
 
         self._running = True
 
@@ -104,12 +104,10 @@ class AccountScheduler:
 
                 # Reset counters
                 logger.info("Starting daily message counter reset")
-                db = await get_db()
-                try:
-                    await db.queries.reset_daily_messages()
+                async with get_db() as db:
+                    account_queries = AccountQueries(db)
+                    await account_queries.reset_daily_messages()
                     logger.info("Daily message counters reset completed")
-                finally:
-                    db.close()
 
             except asyncio.CancelledError:
                 break
@@ -152,3 +150,23 @@ class AccountScheduler:
             except Exception as e:
                 logger.error(f"Error in account warmup: {e}")
                 await asyncio.sleep(60)  # Wait a bit before retry
+
+    async def reset_daily_limits(self):
+        """Reset daily message limits for all accounts"""
+        try:
+            async with get_db() as db:
+                account_queries = AccountQueries(db)
+                await account_queries.reset_daily_messages()
+                logger.info("Daily message limits reset")
+        except Exception as e:
+            logger.error(f"Failed to reset daily limits: {e}")
+
+    async def perform_warmup(self):
+        """Perform account warmup"""
+        try:
+            async with get_db() as db:
+                account_queries = AccountQueries(db)
+                await account_queries.get_accounts_for_warmup()
+                # Rest of warmup logic...
+        except Exception as e:
+            logger.error(f"Failed to perform warmup: {e}")

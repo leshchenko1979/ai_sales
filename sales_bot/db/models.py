@@ -4,8 +4,7 @@ from enum import Enum
 from sqlalchemy import BigInteger, Column, DateTime
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy import ForeignKey, Index, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 

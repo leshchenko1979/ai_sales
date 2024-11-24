@@ -1,7 +1,8 @@
 import logging
 from typing import Optional
 
-from sales_bot.db.queries import AccountQueries
+from db.models import AccountStatus
+from db.queries import AccountQueries
 
 from .client import AccountClient
 from .models import Account
@@ -98,3 +99,10 @@ class AccountManager:
         except Exception as e:
             logger.error(f"Failed to send message from {account.phone}: {e}")
             return False
+
+    async def update_account_status(self, phone: str, status: AccountStatus):
+        """Update account status"""
+        try:
+            await self.queries.update_account_status(phone, status)
+        except Exception as e:
+            logger.error(f"Failed to update account status for {phone}: {e}")
