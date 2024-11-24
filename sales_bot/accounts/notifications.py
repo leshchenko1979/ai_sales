@@ -1,8 +1,8 @@
 import logging
 from datetime import datetime
 
-from config import ADMIN_TELEGRAM_ID, BOT_TOKEN
-from pyrogram import Client
+from bot.client import app
+from config import ADMIN_TELEGRAM_ID
 
 from .models import Account
 
@@ -12,16 +12,8 @@ logger = logging.getLogger(__name__)
 class AccountNotifier:
     def __init__(self):
         self.admin_id = ADMIN_TELEGRAM_ID
-        self._bot = Client("admin_bot", bot_token=BOT_TOKEN)
+        self._bot = app
         self._last_notification = {}  # account_id -> last_notification_time
-
-    async def start(self):
-        """Start the notifier"""
-        await self._bot.start()
-
-    async def stop(self):
-        """Stop the notifier"""
-        await self._bot.stop()
 
     async def notify_blocked(self, account: Account, reason: str):
         """Уведомление о блокировке аккаунта"""
@@ -100,6 +92,6 @@ class AccountNotifier:
     async def _send_notification(self, message: str):
         """Отправляет уведомление администратору"""
         try:
-            await self._bot.send_message(self.admin_id, message)
+            await app.send_message(self.admin_id, message)
         except Exception as e:
             logger.error(f"Failed to send notification: {e}")

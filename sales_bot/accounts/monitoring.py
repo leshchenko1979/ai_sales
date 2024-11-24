@@ -20,14 +20,6 @@ class AccountMonitor:
         self._error_counts = {}  # account_id -> error_count
         self.notifier = AccountNotifier()
 
-    async def start(self):
-        """Start the monitor"""
-        await self.notifier.start()
-
-    async def stop(self):
-        """Stop the monitor"""
-        await self.notifier.stop()
-
     async def check_account(self, account: Account) -> bool:
         """
         Проверяет работоспособность аккаунта

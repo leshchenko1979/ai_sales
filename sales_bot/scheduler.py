@@ -31,7 +31,6 @@ class AccountScheduler:
             self.monitor = AccountMonitor(db)
             self.rotator = AccountRotator(db)
             self.warmup = AccountWarmup(db)
-            await self.monitor.start()
 
         self._running = True
 
@@ -57,9 +56,6 @@ class AccountScheduler:
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
         # Cleanup
-        if self.monitor:
-            await self.monitor.stop()
-
         self._tasks = []
         logger.info("Account scheduler stopped")
 
