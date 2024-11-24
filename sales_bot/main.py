@@ -1,13 +1,10 @@
 import logging
-import asyncio
 import os
 from config import LOG_LEVEL, LOG_FILE, API_ID, API_HASH, BOT_TOKEN
 from utils.logging import setup_logging
-from pyrogram import Client, filters
+from pyrogram import Client
 from models import init_db
-
-# Import handlers
-from bot import commands, dialogs
+from bot.client import init_client
 
 def cleanup_session():
     """Remove old session files"""
@@ -15,20 +12,6 @@ def cleanup_session():
     if os.path.exists(session_file):
         os.remove(session_file)
         logging.info(f"Removed old session file: {session_file}")
-
-# Initialize the client
-app = Client(
-    "sales_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
-
-@app.on_message(filters.command("start"))
-async def start_command(client, message):
-    await message.reply_text("Hello! I'm your sales bot.")
-
-# Add other handlers here...
 
 def main():
     # Setup logging
@@ -40,6 +23,12 @@ def main():
     try:
         # Cleanup old session
         cleanup_session()
+
+        # Initialize the client
+        app = init_client(API_ID, API_HASH, BOT_TOKEN)
+
+        # Import handlers after client initialization
+        from bot import commands, dialogs
 
         # Start the client
         app.run()
