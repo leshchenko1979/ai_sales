@@ -25,7 +25,7 @@ async def get_dialog_history(db, dialog_id: int) -> list:
         for msg in messages
     ]
 
-@app.on_message(filters.private & ~filters.command() & ~filters.me)
+@app.on_message(filters.private & ~filters.command(["start", "stop", "list", "view", "export", "export_all"]) & ~filters.me)
 async def message_handler(client, message):
     """Handle incoming messages"""
     try:
