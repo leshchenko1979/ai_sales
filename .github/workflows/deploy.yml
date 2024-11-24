@@ -16,10 +16,12 @@ jobs:
 
           # Create .env file
           cat << EOF > sales_bot/.env
-          BOT_TOKEN=${{ secrets.BOT_TOKEN }}
-          ADMIN_TELEGRAM_ID=${{ secrets.ADMIN_TELEGRAM_ID }}
-          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          BOT_TOKEN=${{ secrets.ENV_BOT_TOKEN }}
+          API_ID=${{ secrets.ENV_API_ID }}
+          API_HASH=${{ secrets.ENV_API_HASH }}
+          ADMIN_TELEGRAM_ID=${{ secrets.ENV_ADMIN_TELEGRAM_ID }}
+          OPENAI_API_KEY=${{ secrets.ENV_OPENAI_API_KEY }}
+          DATABASE_URL=${{ secrets.ENV_DATABASE_URL }}
           EOF
 
       - name: Configure SSH
