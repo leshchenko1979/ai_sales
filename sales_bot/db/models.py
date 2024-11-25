@@ -19,21 +19,31 @@ class EnumType(TypeDecorator):
     def __init__(self, enum_class, **kw):
         # Store enum class for later use
         self.enum_class = enum_class
-        super().__init__(enum_class, **kw)
+        # Create the enum type with lowercase values
+        enum_values = [e.value.lower() for e in enum_class]
+        super().__init__(enum_values, **kw)
 
     def process_bind_param(self, value: Any, dialect: Any) -> str | None:
         """Convert enum to string when saving to DB"""
         if value is None:
             return None
         if isinstance(value, str):
-            value = self.enum_class.from_string(value)
-        return str(value) if value else None
+            return value.lower()
+        if isinstance(value, self.enum_class):
+            return value.value.lower()
+        return None
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
         """Convert string from DB to enum"""
         if value is None:
             return None
         return self.enum_class.from_string(value)
+
+    def coerce_compared_value(self, op, value):
+        """Handle comparison operations"""
+        if isinstance(value, str):
+            return self
+        return super().coerce_compared_value(op, value)
 
 
 class StrEnum(str, Enum):
