@@ -178,7 +178,7 @@ async def view_command(client: Client, message: PyrogramMessage):
 @app.on_message(command("export"))
 @admin
 async def export_command(client: Client, message: PyrogramMessage):
-    """Обработчик команды /export N"""
+    """Обработчик команд�� /export N"""
     try:
         args = message.text.split()
         if len(args) != 2 or not args[1].isdigit():
@@ -246,6 +246,7 @@ async def help_command(client: Client, message: PyrogramMessage):
 Управление аккаунтами:
 /add_account phone - добавить новый аккаунт
 /authorize phone code - авторизовать аккаунт
+/resend_code phone - повторно отправить код авторизации
 /list_accounts - показать список всех аккаунтов
 /disable_account phone - отключить аккаунт
 /check_account phone - проверить состояние аккаунта
@@ -320,7 +321,7 @@ async def cmd_authorize(client: Client, message: PyrogramMessage):
 
         phone, code = args[1], args[2]
 
-        # Авторизуем аккаунт
+        # Авторизу��м аккаунт
         async with get_db() as session:
             account_manager = AccountManager(session)
             success = await account_manager.authorize_account(phone, code)
@@ -354,7 +355,7 @@ async def cmd_list_accounts(client: Client, message: PyrogramMessage):
                 await message.reply("Нет добавленных аккаунтов.")
                 return
 
-            response = "Список аккаунтов:\n\n"
+            response = "Список аккау��тов:\n\n"
             for acc in accounts:
                 status_emoji = STATUS_EMOJIS.get(acc.status, STATUS_EMOJIS["unknown"])
 
@@ -478,6 +479,45 @@ async def cmd_check_all_accounts(client: Client, message: PyrogramMessage):
     except Exception as e:
         logger.error(
             f"Error in cmd_check_all_accounts: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
+
+
+@app.on_message(command("resend_code"))
+@admin
+async def cmd_resend_code(client: Client, message: PyrogramMessage):
+    """Handler for /resend_code command"""
+    try:
+        args = message.text.split()
+        if len(args) != 2:
+            await message.reply(
+                "Использование: /resend_code phone\n"
+                "Пример: /resend_code +79001234567"
+            )
+            return
+
+        phone = args[1]
+
+        async with get_db() as session:
+            account_manager = AccountManager(session)
+            success = await account_manager.resend_code(phone)
+
+            if success:
+                await message.reply(
+                    "Код авторизации отправлен повторно.\n"
+                    f"Используйте /authorize {phone} код для авторизации."
+                )
+            else:
+                await message.reply(
+                    "Не удалось отправить код. "
+                    "Проверьте номер телефона и попробуйте позже."
+                )
+
+    except Exception as e:
+        logger.error(
+            f"Error in cmd_resend_code: {e}",
             exc_info=True,
             extra={"user_id": message.from_user.id, "command": message.text},
         )

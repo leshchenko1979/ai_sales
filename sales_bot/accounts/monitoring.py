@@ -27,6 +27,7 @@ class AccountMonitor:
         Check if account is working
         Returns True if account is operational
         """
+        client = None
         try:
             client = AccountClient(account)
             if not await client.connect():
@@ -68,7 +69,8 @@ class AccountMonitor:
             return False
 
         finally:
-            await client.disconnect()
+            if client:
+                await client.disconnect()
 
     async def check_all_accounts(self) -> dict:
         """
@@ -77,22 +79,32 @@ class AccountMonitor:
         """
         stats = {"total": 0, "active": 0, "disabled": 0, "blocked": 0}
 
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            accounts = await queries.get_active_accounts()
-            stats["total"] = len(accounts)
+        try:
+            async with get_db() as session:
+                queries = AccountQueries(session)
+                accounts = await queries.get_active_accounts()
+                stats["total"] = len(accounts)
 
-            for account in accounts:
-                if await self.check_account(account):
-                    stats["active"] += 1
-                elif account.status == AccountStatus.blocked:
-                    stats["blocked"] += 1
-                else:
-                    stats["disabled"] += 1
+                for account in accounts:
+                    try:
+                        if await self.check_account(account):
+                            stats["active"] += 1
+                        elif account.status == AccountStatus.blocked:
+                            stats["blocked"] += 1
+                        else:
+                            stats["disabled"] += 1
+                    except Exception as e:
+                        logger.error(f"Error checking account {account.phone}: {e}")
+                        stats["disabled"] += 1
+                        continue
 
-        # Send report
-        await self.notifier.notify_status_report(stats)
-        return stats
+                # Send report
+                await self.notifier.notify_status_report(stats)
+                return stats
+
+        except Exception as e:
+            logger.error(f"Error in check_all_accounts: {e}", exc_info=True)
+            return stats
 
     async def _mark_account_blocked(self, account_id: int, reason: str):
         """Mark account as blocked"""

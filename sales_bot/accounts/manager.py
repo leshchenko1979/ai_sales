@@ -1,8 +1,9 @@
+import asyncio
 import logging
 from typing import Optional
 
 from db.models import AccountStatus
-from db.queries import AccountQueries
+from db.queries import AccountQueries, get_db
 
 from .client import AccountClient
 from .models import Account
@@ -21,19 +22,42 @@ class AccountManager:
     async def add_account(self, phone: str) -> Optional[Account]:
         """Add new account to system"""
         try:
-            account = await self.queries.create_account(phone)
-            if not account:
-                return None
 
-            # Create and connect client
-            client = AccountClient(account)
-            if not await client.connect():
-                return None
+            # Check if account already exists
+            existing = await self.queries.get_account_by_phone(phone)
+            if existing:
+                logger.warning(f"Account {phone} already exists")
+                return existing
 
-            # Request authorization code
-            await client.client.send_code_request(phone)
+            # Create new account
+            async with get_db() as session:
+                queries = AccountQueries(session)
+                account = await queries.create_account(phone)
+                if not account:
+                    return None
 
-            return account
+            # Create and connect client with retries
+            for attempt in range(3):
+                try:
+                    client = AccountClient(account)
+                    if await client.connect():
+                        # Request authorization code
+                        await client.client.send_code(phone)
+                        return account
+
+                    await asyncio.sleep(5)  # Wait before retry
+
+                except Exception as e:
+                    logger.warning(f"Attempt {attempt + 1} failed for {phone}: {e}")
+                    if attempt < 2:  # Don't sleep on last attempt
+                        await asyncio.sleep(5)
+                    continue
+
+            logger.error(f"Failed to initialize account {phone} after 3 attempts")
+            await queries.update_account_status_by_id(
+                account.id, AccountStatus.disabled
+            )
+            return None
 
         except Exception as e:
             logger.error(f"Failed to add account {phone}: {e}", exc_info=True)
@@ -110,3 +134,25 @@ class AccountManager:
             logger.error(
                 f"Failed to update account status for {phone}: {e}", exc_info=True
             )
+
+    async def resend_code(self, phone: str) -> bool:
+        """Resend authorization code for account"""
+        try:
+            account = await self.queries.get_account_by_phone(phone)
+            if not account:
+                logger.error(f"Account {phone} not found")
+                return False
+
+            client = AccountClient(account)
+            if not await client.connect():
+                return False
+
+            # Request new code
+            await client.client.send_code(phone)
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"Failed to resend code for account {phone}: {e}", exc_info=True
+            )
+            return False
