@@ -53,70 +53,74 @@ class AccountRotator:
             disabled_accounts = await self.queries.get_accounts_by_status(
                 AccountStatus.DISABLED
             )
-        enabled_accounts = []
+            enabled_accounts = []
 
-        for account in disabled_accounts:
-            try:
-                # Проверяем время последнего использования
-                if account.last_used:
-                    rest_time = datetime.now() - account.last_used
-                    if rest_time < timedelta(hours=24):
-                        continue
+            for account in disabled_accounts:
+                try:
+                    # Проверяем время последнего использования
+                    if account.last_used:
+                        rest_time = datetime.now() - account.last_used
+                        if rest_time < timedelta(hours=24):
+                            continue
 
-                # Проверяем работоспособность
-                if await self.monitor.check_account(account):
-                    # Включаем аккаунт
-                    await self.queries.update_account_status_by_id(
-                        account.id, AccountStatus.ACTIVE.value
+                    # Проверяем работоспособность
+                    if await self.monitor.check_account(account):
+                        # Включаем аккаунт
+                        await self.queries.update_account_status_by_id(
+                            account.id, AccountStatus.ACTIVE.value
+                        )
+                        enabled_accounts.append(account)
+                        logger.info(f"Enabled account {account.phone}")
+
+                except Exception as e:
+                    logger.error(
+                        f"Error enabling account {account.phone}: {e}", exc_info=True
                     )
-                    enabled_accounts.append(account)
-                    logger.info(f"Enabled account {account.phone}")
 
-            except Exception as e:
-                logger.error(
-                    f"Error enabling account {account.phone}: {e}", exc_info=True
-                )
-
-        return enabled_accounts
+            return enabled_accounts
 
     async def _disable_tired_accounts(self) -> List[Account]:
         """Отключает аккаунты, которые много работали"""
         # Получаем активные аккаунты
-        active_accounts = await self.queries.get_accounts_by_status(
-            AccountStatus.ACTIVE
-        )
-        disabled_accounts = []
+        async with get_db():
+            active_accounts = await self.queries.get_accounts_by_status(
+                AccountStatus.ACTIVE
+            )
+            disabled_accounts = []
 
-        for account in active_accounts:
-            try:
-                should_disable = False
+            for account in active_accounts:
+                try:
+                    should_disable = False
 
-                # Проверяем количество сообщений
-                if account.daily_messages >= self.db.config.MAX_DAILY_MESSAGES * 0.8:
-                    should_disable = True
-                    reason = "daily limit approaching"
-
-                # Проверяем время работы
-                elif account.last_used:
-                    work_time = datetime.now() - account.last_used
-                    if work_time > timedelta(hours=12):
+                    # Проверяем количество сообщений
+                    if (
+                        account.daily_messages
+                        >= self.db.config.MAX_DAILY_MESSAGES * 0.8
+                    ):
                         should_disable = True
-                        reason = "long work period"
+                        reason = "daily limit approaching"
 
-                if should_disable:
-                    # Отключаем аккаунт
-                    await self.queries.update_account_status_by_id(
-                        account.id, AccountStatus.DISABLED.value
+                    # Проверяем время работы
+                    elif account.last_used:
+                        work_time = datetime.now() - account.last_used
+                        if work_time > timedelta(hours=12):
+                            should_disable = True
+                            reason = "long work period"
+
+                    if should_disable:
+                        # Отключаем аккаунт
+                        await self.queries.update_account_status_by_id(
+                            account.id, AccountStatus.DISABLED.value
+                        )
+                        disabled_accounts.append(account)
+                        logger.info(f"Disabled account {account.phone}: {reason}")
+
+                except Exception as e:
+                    logger.error(
+                        f"Error disabling account {account.phone}: {e}", exc_info=True
                     )
-                    disabled_accounts.append(account)
-                    logger.info(f"Disabled account {account.phone}: {reason}")
 
-            except Exception as e:
-                logger.error(
-                    f"Error disabling account {account.phone}: {e}", exc_info=True
-                )
-
-        return disabled_accounts
+            return disabled_accounts
 
     async def _notify_rotation_results(
         self, enabled: List[Account], disabled: List[Account]

@@ -95,20 +95,22 @@ class AccountMonitor:
 
     async def _mark_account_blocked(self, account_id: int, reason: str):
         """Помечает аккаунт как заблокированный"""
-        account = await self.queries.get_account_by_id(account_id)
-        if account:
-            await self.queries.update_account_status_by_id(
-                account_id, AccountStatus.BLOCKED
-            )
+        async with get_db():
+            account = await self.queries.get_account_by_id(account_id)
+            if account:
+                await self.queries.update_account_status_by_id(
+                    account_id, AccountStatus.BLOCKED
+                )
             await self.notifier.notify_blocked(account, reason)
             self._error_counts.pop(account_id, None)
 
     async def _mark_account_disabled(self, account_id: int, reason: str):
         """Помечает аккаунт как отключенный"""
-        account = await self.queries.get_account_by_id(account_id)
-        if account:
-            await self.queries.update_account_status_by_id(
-                account_id, AccountStatus.DISABLED
-            )
-            await self.notifier.notify_disabled(account, reason)
-            self._error_counts.pop(account_id, None)
+        async with get_db():
+            account = await self.queries.get_account_by_id(account_id)
+            if account:
+                await self.queries.update_account_status_by_id(
+                    account_id, AccountStatus.DISABLED
+                )
+                await self.notifier.notify_disabled(account, reason)
+                self._error_counts.pop(account_id, None)

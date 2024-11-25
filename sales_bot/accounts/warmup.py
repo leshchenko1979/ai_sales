@@ -34,16 +34,17 @@ class AccountWarmup:
                 return False
 
             try:
-                # Выполняем случайные действия прогрева
-                actions = random.sample(self._warmup_actions, k=2)
-                for action in actions:
-                    if not await action(client):
-                        return False
-                    # Делаем паузу между действиями
-                    await asyncio.sleep(random.randint(30, 120))
+                async with get_db():
+                    # Выполняем случайные действия прогрева
+                    actions = random.sample(self._warmup_actions, k=2)
+                    for action in actions:
+                        if not await action(client):
+                            return False
+                        # Делаем паузу между действиями
+                        await asyncio.sleep(random.randint(30, 120))
 
-                # Обновляем статус аккаунта
-                await self.db.queries.update_account_warmup_time(account.id)
+                    # Обновляем статус аккаунта
+                    await self.queries.update_account_warmup_time(account.id)
                 return True
 
             finally:
