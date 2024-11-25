@@ -1,13 +1,13 @@
 import asyncio
 import logging
-from datetime import datetime, time, timedelta
 from typing import Optional
 
 from accounts.monitoring import AccountMonitor
 from accounts.notifications import AccountNotifier
-from accounts.rotation import AccountRotator
+from accounts.rotation import AccountRotation
 from accounts.warmup import AccountWarmup
 from db.queries import AccountQueries, get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,9 @@ class AccountScheduler:
     def __init__(self):
         self.monitor: Optional[AccountMonitor] = None
         self.notifier: Optional[AccountNotifier] = None
-        self.rotator: Optional[AccountRotator] = None
+        self.rotator: Optional[AccountRotation] = None
         self.warmup: Optional[AccountWarmup] = None
+        self.db_session: Optional[AsyncSession] = None
         self._running = False
         self._tasks = []
 
@@ -26,27 +27,32 @@ class AccountScheduler:
         if self._running:
             return
 
-        # Initialize components
-        async with get_db() as db:
-            self.monitor = AccountMonitor(db)
-            self.rotator = AccountRotator(db)
-            self.warmup = AccountWarmup(db)
+        # Get database session
+        async with get_db() as session:
+            self.db_session = session
+            queries = AccountQueries(session)
 
-        self._running = True
+            # Initialize components
+            self.notifier = AccountNotifier()
+            self.monitor = AccountMonitor(queries, self.notifier)
+            self.rotator = AccountRotation(queries, self.notifier)
+            self.warmup = AccountWarmup(queries, self.notifier)
 
-        # Schedule tasks
-        self._tasks = [
-            asyncio.create_task(self._run_periodic_check()),
-            asyncio.create_task(self._run_daily_reset()),
-            asyncio.create_task(self._run_account_rotation()),
-            asyncio.create_task(self._run_account_warmup()),
-        ]
+            self._running = True
+
+            # Schedule tasks
+            self._tasks = [
+                asyncio.create_task(self._run_account_monitor()),
+                asyncio.create_task(self._run_account_rotation()),
+                asyncio.create_task(self._run_account_warmup()),
+            ]
 
         logger.info("Account scheduler started")
 
     async def stop(self):
         """Stop scheduler"""
-        self._running = False
+        if not self._running:
+            return
 
         # Cancel all tasks
         for task in self._tasks:
@@ -54,12 +60,17 @@ class AccountScheduler:
 
         # Wait for tasks to complete
         await asyncio.gather(*self._tasks, return_exceptions=True)
+        self._tasks.clear()
 
-        # Cleanup
-        self._tasks = []
+        # Close database session
+        if self.db_session:
+            await self.db_session.close()
+            self.db_session = None
+
+        self._running = False
         logger.info("Account scheduler stopped")
 
-    async def _run_periodic_check(self):
+    async def _run_account_monitor(self):
         """Run periodic account checks"""
         CHECK_INTERVAL = 3600  # 1 hour in seconds
 
@@ -75,40 +86,6 @@ class AccountScheduler:
                 break
             except Exception as e:
                 logger.error(f"Error in periodic check: {e}", exc_info=True)
-                await asyncio.sleep(60)  # Wait a bit before retry
-
-    async def _run_daily_reset(self):
-        """Run daily message counter reset"""
-        while self._running:
-            try:
-                # Calculate time until next reset (3:00 AM)
-                now = datetime.now()
-                reset_time = time(hour=3, minute=0)
-
-                next_reset = datetime.combine(
-                    (
-                        now.date()
-                        if now.time() < reset_time
-                        else now.date() + timedelta(days=1)
-                    ),
-                    reset_time,
-                )
-
-                # Sleep until next reset
-                sleep_seconds = (next_reset - now).total_seconds()
-                await asyncio.sleep(sleep_seconds)
-
-                # Reset counters
-                logger.info("Starting daily message counter reset")
-                async with get_db() as db:
-                    account_queries = AccountQueries(db)
-                    await account_queries.reset_daily_messages()
-                    logger.info("Daily message counters reset completed")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in daily reset: {e}", exc_info=True)
                 await asyncio.sleep(60)  # Wait a bit before retry
 
     async def _run_account_rotation(self):
@@ -150,19 +127,19 @@ class AccountScheduler:
     async def reset_daily_limits(self):
         """Reset daily message limits for all accounts"""
         try:
-            async with get_db() as db:
-                account_queries = AccountQueries(db)
-                await account_queries.reset_daily_messages()
-                logger.info("Daily message limits reset")
+            async with self.db_session.begin():
+                await self.db_session.execute(
+                    "UPDATE accounts SET daily_message_limit = 0"
+                )
+            logger.info("Daily message limits reset")
         except Exception as e:
             logger.error(f"Failed to reset daily limits: {e}", exc_info=True)
 
     async def perform_warmup(self):
         """Perform account warmup"""
         try:
-            async with get_db() as db:
-                account_queries = AccountQueries(db)
-                await account_queries.get_accounts_for_warmup()
+            async with self.db_session.begin():
                 # Rest of warmup logic...
+                pass
         except Exception as e:
             logger.error(f"Failed to perform warmup: {e}", exc_info=True)

@@ -5,7 +5,7 @@ from db.queries import AccountQueries
 
 from .client import AccountClient
 from .models import Account, AccountStatus
-from .monitor import AccountMonitor
+from .monitoring import AccountMonitor
 from .notifications import AccountNotifier
 
 logger = logging.getLogger(__name__)
