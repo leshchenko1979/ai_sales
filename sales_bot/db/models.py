@@ -1,30 +1,63 @@
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from sqlalchemy import BigInteger, Column, DateTime
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Index, Integer, String
+from sqlalchemy import ForeignKey, Index, Integer, String, TypeDecorator
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
 
-class BaseEnum(str, Enum):
-    """Base class for all enums with case-insensitive handling"""
+class EnumType(str, Enum, TypeDecorator):
+    """Base enum class with SQLAlchemy integration"""
 
-    def _missing_(cls, value):
+    impl = SQLEnum
+    cache_ok = True
+
+    def __init__(self, *args, **kwargs):
+        TypeDecorator.__init__(self, self.__class__, *args, **kwargs)
+
+    @classmethod
+    def from_string(cls, value: str | None) -> "EnumType | None":
+        """Safely convert string to enum value"""
+        if value is None:
+            return None
+        try:
+            return cls(value.lower())
+        except (ValueError, AttributeError):
+            return None
+
+    def _missing_(cls, value: Any) -> "EnumType | None":
         """Handle case-insensitive lookup"""
-        for member in cls:
-            if member.value.lower() == value.lower():
-                return member
+        if isinstance(value, str):
+            value = value.lower()
+            for member in cls:
+                if member.value.lower() == value:
+                    return member
         return None
 
-    def __str__(self):
+    def __str__(self) -> str:
         """Return lowercase string value for database"""
         return self.value.lower()
 
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        """Convert enum to string when saving to DB"""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = self.__class__.from_string(value)
+        return str(value) if value else None
 
-class AccountStatus(BaseEnum):
+    def process_result_value(self, value: Any, dialect: Any) -> "EnumType | None":
+        """Convert string from DB to enum"""
+        if value is None:
+            return None
+        return self.__class__.from_string(value)
+
+
+class AccountStatus(EnumType):
     """Статусы аккаунтов"""
 
     ACTIVE = "active"
@@ -32,7 +65,7 @@ class AccountStatus(BaseEnum):
     BLOCKED = "blocked"
 
 
-class DialogStatus(BaseEnum):
+class DialogStatus(EnumType):
     """Статусы диалогов"""
 
     ACTIVE = "active"
@@ -41,7 +74,7 @@ class DialogStatus(BaseEnum):
     FAILED = "failed"
 
 
-class MessageDirection(BaseEnum):
+class MessageDirection(EnumType):
     """Направления сообщений"""
 
     IN = "in"
@@ -56,9 +89,7 @@ class Account(Base):
     id = Column(BigInteger, primary_key=True)
     phone = Column(String, nullable=False, unique=True)
     session_string = Column(String)
-    status = Column(
-        SQLEnum(AccountStatus), nullable=False, default=AccountStatus.ACTIVE
-    )
+    status = Column(AccountStatus, nullable=False, default=AccountStatus.ACTIVE)
     last_used = Column(DateTime)
     last_warmup = Column(DateTime)
     daily_messages = Column(Integer, default=0)
@@ -89,7 +120,7 @@ class Dialog(Base):
     id = Column(BigInteger, primary_key=True)
     account_id = Column(BigInteger, ForeignKey("accounts.id"))
     target_username = Column(String, nullable=False)
-    status = Column(SQLEnum(DialogStatus), nullable=False, default=DialogStatus.ACTIVE)
+    status = Column(EnumType(DialogStatus), nullable=False, default=DialogStatus.ACTIVE)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -109,7 +140,7 @@ class Message(Base):
 
     id = Column(BigInteger, primary_key=True)
     dialog_id = Column(BigInteger, ForeignKey("dialogs.id"))
-    direction = Column(SQLEnum(MessageDirection), nullable=False)
+    direction = Column(EnumType(MessageDirection), nullable=False)
     content = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
