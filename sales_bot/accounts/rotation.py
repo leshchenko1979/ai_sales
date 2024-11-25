@@ -27,17 +27,18 @@ class AccountRotator:
         stats = {"enabled": 0, "disabled": 0, "errors": 0}
 
         try:
-            # Включаем отдохнувшие аккаунты
-            enabled = await self._enable_rested_accounts()
-            stats["enabled"] = len(enabled)
+            async with get_db():
+                # Включаем отдохнувшие аккаунты
+                enabled = await self._enable_rested_accounts()
+                stats["enabled"] = len(enabled)
 
-            # Отключаем уставшие аккаунты
-            disabled = await self._disable_tired_accounts()
-            stats["disabled"] = len(disabled)
+                # Отключаем уставшие аккаунты
+                disabled = await self._disable_tired_accounts()
+                stats["disabled"] = len(disabled)
 
-            # Уведомляем о результатах
-            if enabled or disabled:
-                await self._notify_rotation_results(enabled, disabled)
+                # Уведомляем о результатах
+                if enabled or disabled:
+                    await self._notify_rotation_results(enabled, disabled)
 
             return stats
 
