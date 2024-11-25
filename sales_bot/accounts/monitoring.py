@@ -1,7 +1,6 @@
 import logging
-from datetime import datetime
 
-from db.queries import AccountQueries
+from db.queries import AccountQueries, with_queries
 
 from .client import AccountClient
 from .models import Account
@@ -15,15 +14,16 @@ class AccountMonitor:
     Компонент для мониторинга состояния аккаунтов
     """
 
-    def __init__(self, queries: AccountQueries, notifier: AccountNotifier):
-        self.queries = queries
-        self.notifier = notifier
+    def __init__(self):
+        """Initialize monitor"""
+        self.notifier = AccountNotifier()
 
-    async def check_accounts(self):
+    @with_queries(AccountQueries)
+    async def check_accounts(self, queries: AccountQueries):
         """Проверка состояния всех аккаунтов"""
         try:
             # Получаем все аккаунты
-            accounts = await self.queries.get_all_accounts()
+            accounts = await queries.get_all_accounts()
 
             # Собираем статистику
             stats = {
@@ -49,52 +49,70 @@ class AccountMonitor:
             # Отправляем отчет
             await self.notifier.notify_status_report(stats)
 
-        except Exception as e:
-            logger.error(f"Failed to check accounts: {e}", exc_info=True)
+            return stats
 
-    async def check_account(self, account: Account) -> bool:
+        except Exception as e:
+            logger.error(f"Error checking accounts: {e}", exc_info=True)
+            return None
+
+    @with_queries(AccountQueries)
+    async def check_account(self, queries: AccountQueries, account: Account) -> bool:
         """
         Проверка состояния конкретного аккаунта
-        Возвращает True если аккаунт в порядке
+
+        :param queries: Database queries executor
+        :param account: Account to check
+        :return: True if account is healthy
         """
         try:
-            # Создаем клиент
+            # Проверяем базовые параметры
+            if not account.can_be_used:
+                logger.warning(f"Account {account.phone} is not available for use")
+                return False
+
+            # Проверяем клиент
             client = AccountClient(account)
-
-            # Пробуем подключиться
             if not await client.connect():
-                await self.notifier.notify_disabled(
-                    account, "Не удалось подключиться к аккаунту"
-                )
+                logger.error(f"Failed to connect client for {account.phone}")
                 return False
 
-            # Проверяем базовое состояние
-            if not await client.check_auth():
-                await self.notifier.notify_disabled(account, "Аккаунт не авторизован")
+            # Проверяем авторизацию
+            if not account.session_string:
+                logger.error(f"Account {account.phone} has no session string")
                 return False
+
+            # Проверяем флуд-контроль
+            if account.is_flood_wait:
+                logger.warning(f"Account {account.phone} is in flood wait")
+                return False
+
+            # Обновляем last_used_at
+            await queries.update_last_used(account.id)
 
             return True
 
         except Exception as e:
-            logger.error(f"Failed to check account {account.phone}: {e}", exc_info=True)
+            logger.error(f"Error checking account {account.phone}: {e}", exc_info=True)
             return False
 
-    async def check_flood_wait(self, account: Account) -> bool:
+    @with_queries(AccountQueries)
+    async def check_flood_wait(self, queries: AccountQueries, account: Account) -> bool:
         """
-        Проверка флуд-контроля аккаунта
-        Возвращает True если аккаунт не в флуд-контроле
+        Проверка флуд-контроля для аккаунта
+
+        :param queries: Database queries executor
+        :param account: Account to check
+        :return: True if account is not in flood wait
         """
         try:
             if account.is_flood_wait:
-                # Проверяем не истек ли флуд-контроль
-                if datetime.utcnow() >= account.flood_wait_until:
-                    await self.queries.clear_flood_wait(account.id)
-                    return True
+                logger.warning(f"Account {account.phone} is in flood wait")
                 return False
+
             return True
 
         except Exception as e:
             logger.error(
-                f"Failed to check flood wait for {account.phone}: {e}", exc_info=True
+                f"Error checking flood wait for {account.phone}: {e}", exc_info=True
             )
             return False

@@ -2,9 +2,10 @@ import logging
 from typing import Optional
 
 from db.models import AccountStatus
-from db.queries import AccountQueries, get_db
+from db.queries import AccountQueries, with_queries
 
 from .client import AccountClient
+from .client_manager import AccountClientManager
 from .models import Account
 from .safety import AccountSafety
 
@@ -12,13 +13,24 @@ logger = logging.getLogger(__name__)
 
 
 class AccountManager:
-    def __init__(self, db):
-        self.db = db
-        self.queries = AccountQueries(self.db)
-        self.safety = AccountSafety()
-        self._active_clients: dict[int, AccountClient] = {}
+    """
+    Manages Telegram account operations.
+    Maintains active clients and safety rules.
+    """
 
-    def _normalize_phone(self, phone: str) -> str:
+    def __init__(self):
+        """Initialize manager with safety rules and client manager"""
+        self.safety = AccountSafety()
+        self._client_manager = None  # Will be initialized on first use
+
+    async def _get_client_manager(self) -> AccountClientManager:
+        """Get singleton instance of client manager"""
+        if self._client_manager is None:
+            self._client_manager = await AccountClientManager.get_instance()
+        return self._client_manager
+
+    @staticmethod
+    def _normalize_phone(phone: str) -> str:
         """Normalize phone number to standard format"""
         return (
             phone.strip()
@@ -29,86 +41,89 @@ class AccountManager:
             .replace(")", "")
         )
 
-    async def add_account(self, phone_number: str) -> Account:
+    @with_queries(AccountQueries)
+    async def add_account(self, queries: AccountQueries, phone_number: str) -> Account:
         """
-        Добавление нового аккаунта в базу данных
+        Add new account to database.
 
-        :param phone_number: Номер телефона аккаунта
-        :return: Созданный аккаунт
+        :param queries: Database queries executor
+        :param phone_number: Phone number for the account
+        :return: Created account
+        :raises ValueError: If account with this phone already exists
         """
         try:
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                account = await queries.create_account(phone_number)
-                return account
-
+            return await queries.create_account(phone_number)
         except Exception as e:
             logger.error(f"Error adding account: {e}", exc_info=True)
             raise
 
-    async def authorize_account(self, phone: str, code: str) -> bool:
-        """Authorize account with received code"""
+    @with_queries(AccountQueries)
+    async def get_or_create_account(
+        self, queries: AccountQueries, phone: str
+    ) -> Account:
+        """
+        Get existing account by phone number or create a new one if it doesn't exist.
+
+        :param queries: Database queries executor
+        :param phone: Phone number for the account
+        :return: Existing or newly created account
+        """
+        phone = self._normalize_phone(phone)
         try:
-            phone = self._normalize_phone(phone)
-            logger.info(f"Starting authorization for {phone}")
+            account = await queries.get_account_by_phone(phone)
+            if not account:
+                account = await queries.create_account(phone)
+                logger.info(f"Created new account for phone {phone}")
+            return account
+        except Exception as e:
+            logger.error(f"Error getting or creating account: {e}", exc_info=True)
+            raise
 
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                account = await queries.get_account_by_phone(phone)
+    async def get_client(self, account: Account) -> Optional[AccountClient]:
+        """
+        Get client for the account. Creates new client if needed.
 
-                if not account:
-                    logger.error(f"No account found for phone: {phone}")
-                    return False
-
-                if account.status != AccountStatus.code_requested:
-                    logger.error(f"Invalid account state for authorization: {phone}")
-                    return False
-
-                # Get existing client that has the phone code hash
-                client = self._active_clients.get(account.id)
-                if not client:
-                    logger.error(
-                        f"No active client found for account {account.id} ({phone})"
-                    )
-                    return False
-
-                # Authorize with stored phone code hash
-                if not await client.sign_in(code):
-                    logger.error(f"Failed to sign in account {account.id} ({phone})")
-                    return False
-
-                # Export and store session string
-                session_string = await client.export_session_string()
-                await queries.update_account_session(account.id, session_string)
-                await queries.update_account_status(account.id, AccountStatus.active)
-                await session.commit()
-
-                logger.info(f"Successfully authorized account {account.id} ({phone})")
-                return True
-
-        except Exception:
-            logger.error(f"Authorization failed for account: {phone}", exc_info=True)
-            return False
-
-    async def get_available_account(self) -> Optional[Account]:
-        """Get account available for sending messages"""
-        try:
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                accounts = await queries.get_active_accounts()
-
-                for account in accounts:
-                    if account.can_be_used and self.safety.can_send_message(account):
-                        return account
-
+        :param account: Account to get client for
+        :return: AccountClient instance or None if creation failed
+        """
+        if account.status == AccountStatus.disabled:
+            logger.error(f"Cannot get client for disabled account {account.id}")
             return None
 
+        client_manager = await self._get_client_manager()
+        return await client_manager.get_client(account)
+
+    @with_queries(AccountQueries)
+    async def get_available_account(self, queries: AccountQueries) -> Optional[Account]:
+        """
+        Get account available for sending messages.
+
+        :param queries: Database queries executor
+        :return: Available account or None
+        """
+        try:
+            accounts = await queries.get_active_accounts()
+            for account in accounts:
+                if account.can_be_used and self.safety.can_send_message(account):
+                    return account
+            return None
         except Exception as e:
             logger.error(f"Failed to get available account: {e}", exc_info=True)
             return None
 
-    async def send_message(self, account: Account, username: str, text: str) -> bool:
-        """Send message using specified account"""
+    @with_queries(AccountQueries)
+    async def send_message(
+        self, queries: AccountQueries, account: Account, username: str, text: str
+    ) -> bool:
+        """
+        Send message using specified account.
+
+        :param queries: Database queries executor
+        :param account: Account to send from
+        :param username: Target username
+        :param text: Message text
+        :return: True if message sent successfully
+        """
         try:
             if not account.can_be_used:
                 logger.error(
@@ -120,19 +135,18 @@ class AccountManager:
             if not self.safety.can_send_message(account):
                 return False
 
-            # Get or create client
-            client = self._active_clients.get(account.id)
+            # Get client through manager
+            client = await self.get_client(account)
             if not client:
-                client = AccountClient(account)
-                if not await client.connect():
-                    return False
-                self._active_clients[account.id] = client
+                return False
 
             # Send message
             success = await client.send_message(username, text)
             if success:
                 # Safety update
                 self.safety.record_message(account)
+                # Update message count in database
+                await queries.increment_messages(account.id)
 
             return success
 
@@ -142,105 +156,103 @@ class AccountManager:
             )
             return False
 
-    async def update_account_status(self, phone: str, status: AccountStatus):
-        """Update account status"""
+    @with_queries(AccountQueries)
+    async def authorize_account(
+        self, queries: AccountQueries, phone: str, code: str
+    ) -> bool:
+        """
+        Authorize account with received code.
+
+        :param queries: Database queries executor
+        :param phone: Phone number
+        :param code: Authorization code
+        :return: True if authorization successful
+        """
         try:
             phone = self._normalize_phone(phone)
-            account = await self.queries.get_account_by_phone(phone)
+            logger.info(f"Starting authorization for {phone}")
+
+            account = await queries.get_account_by_phone(phone)
             if not account:
-                return
+                logger.error(f"No account found for phone: {phone}")
+                return False
 
-            # Update status
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                await queries.update_account_status(account.id, status)
+            if account.status != AccountStatus.code_requested:
+                logger.error(f"Invalid account state for authorization: {phone}")
+                return False
 
-            # Close client if needed
-            if status in [AccountStatus.blocked, AccountStatus.disabled]:
-                client = self._active_clients.pop(account.id, None)
-                if client:
-                    await client.disconnect()
+            client = await self.get_client(account)
+            if not client:
+                return False
 
-        except Exception as e:
-            logger.error(f"Failed to update status for {phone}: {e}", exc_info=True)
-
-    async def request_code(self, phone: str) -> bool:
-        """Request authorization code for account"""
-        try:
-            phone = self._normalize_phone(phone)
-            logger.info(f"Requesting code for normalized phone: {phone}")
-
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                account = await queries.get_account_by_phone(phone)
-
-                logger.debug(f"Found account: {account}")
-                if not account:
-                    logger.error(f"No account found for phone: {phone}")
-                    return False
-
-                # Create and connect client
-                logger.debug(f"Creating client for account {account.id} ({phone})")
-                client = AccountClient(account)
-
-                logger.debug(f"Connecting client for account {account.id} ({phone})")
-                if not await client.connect():
-                    logger.error(
-                        f"Failed to connect client for account {account.id} ({phone})"
-                    )
-                    return False
-
-                # Store active client for later use
-                self._active_clients[account.id] = client
-                logger.info(
-                    "Successfully stored active client "
-                    f"for account {account.id} ({phone})"
-                )
-
-                # Verify client state
-                logger.debug(f"Client state for {phone}:")
-                logger.debug(f"- Connected: {client.client.is_connected}")
-                logger.debug(
-                    f"- Phone code hash: {'Yes' if client._phone_code_hash else 'No'}"
-                )
-                logger.debug(f"- Account status: {account.status}")
-
-                # Update account status in database
-                await queries.update_account_status(
-                    account.id, AccountStatus.code_requested
-                )
-                await session.commit()
-
+            if await client.sign_in(code):
+                session_string = await client.export_session_string()
+                await queries.update_session(account.id, session_string)
+                await queries.update_status(account.id, AccountStatus.active)
+                logger.info(f"Successfully authorized account {phone}")
                 return True
 
-        except Exception as e:
-            logger.error(
-                f"Failed to request code for account {phone}: {e}", exc_info=True
-            )
             return False
 
-    async def resend_code(self, phone: str) -> bool:
-        """Resend authorization code for account"""
+        except Exception as e:
+            logger.error(f"Error in authorize_account: {e}", exc_info=True)
+            return False
+
+    @with_queries(AccountQueries)
+    async def request_code(self, queries: AccountQueries, phone: str) -> bool:
+        """
+        Request authorization code for account.
+
+        :param queries: Database queries executor
+        :param phone: Phone number
+        :return: True if code request successful
+        """
         try:
             phone = self._normalize_phone(phone)
-            account = await self.queries.get_account_by_phone(phone)
+            account = await queries.get_account_by_phone(phone)
             if not account:
+                logger.error(f"No account found for phone: {phone}")
                 return False
 
-            # Проверяем текущее состояние
-            if account.status not in [AccountStatus.new, AccountStatus.code_requested]:
-                logger.error(
-                    f"Cannot resend code for account {phone} in state {account.status}"
-                )
+            client = await self.get_client(account)
+            if not client:
                 return False
 
-            # Создаем клиент и запрашиваем код
-            client = AccountClient(account)
-            if not await client.connect():
-                return False
+            if await client.connect():
+                await queries.update_status(account.id, AccountStatus.code_requested)
+                logger.info(f"Successfully requested code for {phone}")
+                return True
 
-            return True
+            return False
 
         except Exception as e:
-            logger.error(f"Failed to resend code for {phone}: {e}", exc_info=True)
+            logger.error(f"Error in request_code: {e}", exc_info=True)
             return False
+
+    @with_queries(AccountQueries)
+    async def disable_account(self, queries: AccountQueries, account_id: int) -> None:
+        """
+        Disable account and disconnect its client.
+
+        :param queries: Database queries executor
+        :param account_id: ID of the account to disable
+        """
+        try:
+            client_manager = await self._get_client_manager()
+            await client_manager.disconnect_client(account_id)
+            await queries.update_status(account_id, AccountStatus.disabled)
+            logger.info(f"Account {account_id} disabled")
+        except Exception as e:
+            logger.error(f"Error disabling account {account_id}: {e}", exc_info=True)
+            raise
+
+    async def cleanup(self) -> None:
+        """
+        Cleanup resources when shutting down.
+        Disconnects all clients and performs necessary cleanup.
+        """
+        try:
+            if self._client_manager:
+                await self._client_manager.cleanup()
+        except Exception as e:
+            logger.error(f"Error in cleanup: {e}", exc_info=True)

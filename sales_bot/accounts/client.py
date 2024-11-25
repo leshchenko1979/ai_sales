@@ -1,9 +1,19 @@
+import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 from config import API_HASH, API_ID
 from pyrogram import Client
-from pyrogram.errors import BadRequest, FloodWait, PhoneCodeExpired, PhoneCodeInvalid
+from pyrogram.errors import (
+    AuthKeyUnregistered,
+    BadRequest,
+    FloodWait,
+    PasswordHashInvalid,
+    PhoneCodeExpired,
+    PhoneCodeInvalid,
+    PhoneNumberInvalid,
+    SessionPasswordNeeded,
+)
 
 from .models import Account, AccountStatus
 
@@ -11,218 +21,222 @@ logger = logging.getLogger(__name__)
 
 
 class AccountClient:
+    """
+    Manages individual Telegram account connection and operations.
+    Handles authentication, message sending, and connection management.
+    """
+
     def __init__(self, account: Account):
         self.account = account
         self.client: Optional[Client] = None
         self._connect_retries = 3
         self._retry_delay = 5  # seconds
         self._phone_code_hash: Optional[str] = None
+        self._exponential_backoff = True
+        self._flood_wait_sleep = 1.1  # множитель для sleep при FloodWait
+
+    async def __aenter__(self):
+        """Support for async context manager"""
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Cleanup when used as context manager"""
+        await self.disconnect()
 
     async def connect(self) -> bool:
-        """Connect to Telegram"""
-        try:
-            if not self.client:
-                logger.debug(f"Initializing new client for {self.account.phone}")
-                self.client = Client(
-                    name=f"account_{self.account.id}",
-                    api_id=API_ID,
-                    api_hash=API_HASH,
-                    in_memory=True,
-                    phone_number=self.account.phone,
-                    session_string=self.account.session_string,
-                )
-                logger.debug(f"Client initialized with API ID: {API_ID}")
+        """
+        Connect to Telegram with retry mechanism and exponential backoff.
 
-            if not self.client.is_connected:
-                logger.debug(f"Attempting to connect client for {self.account.phone}")
-                await self.client.connect()
+        :return: True if connection successful
+        """
+        retry_count = 0
+        current_delay = self._retry_delay
 
-            if not self.client.is_connected:
-                logger.error(f"Failed to connect client for {self.account.phone}")
-                return False
-
-            # For new accounts or those without session string, always request code
-            if not self.account.session_string:
-                logger.debug(f"Attempting to send code to {self.account.phone}")
-                try:
-                    # Try to send code
-                    sent = await self.client.send_code(self.account.phone)
-                    logger.debug(f"Send code response: {vars(sent)}")
-
-                    if not sent or not sent.phone_code_hash:
-                        logger.error(
-                            f"Failed to get phone code hash for {self.account.phone}"
-                        )
-                        return False
-
-                    self._phone_code_hash = sent.phone_code_hash
-                    logger.info(
-                        f"Received phone code hash: {self._phone_code_hash[:5]}..."
+        while retry_count < self._connect_retries:
+            try:
+                if not self.client:
+                    logger.debug(f"Initializing new client for {self.account.phone}")
+                    self.client = Client(
+                        name=f"account_{self.account.id}",
+                        api_id=API_ID,
+                        api_hash=API_HASH,
+                        in_memory=True,
+                        phone_number=self.account.phone,
+                        session_string=self.account.session_string,
                     )
 
-                    # Log code delivery details
-                    logger.debug(f"Code delivery details for {self.account.phone}:")
-                    logger.debug(f"- Code type: {sent.type}")
-                    logger.debug(f"- Next type: {sent.next_type}")
-                    logger.debug(f"- Timeout: {sent.timeout}")
+                if not self.client.is_connected:
+                    await self.client.connect()
 
-                    # Update account status
-                    self.account.request_code()
-                    logger.debug(f"Updated account status to {self.account.status}")
-
+                if self.client.is_connected:
                     return True
 
-                except FloodWait:
-                    logger.error(
-                        f"FloodWait error for {self.account.phone}. "
-                        "Need to wait {e.value} seconds"
-                    )
-                    return False
-                except BadRequest as e:
-                    if "PHONE_NUMBER_BANNED" in str(e):
-                        logger.error(
-                            f"Phone number {self.account.phone} is banned by Telegram"
-                        )
-                    elif "API_ID_INVALID" in str(e):
-                        logger.error("Invalid API ID. Check your API credentials")
-                    elif "API_ID_PUBLISHED_FLOOD" in str(e):
-                        logger.error("Too many requests with this API ID. Need to wait")
-                    else:
-                        logger.error(
-                            f"Bad request error for {self.account.phone}: {str(e)}"
-                        )
-                    return False
-                except Exception as e:
-                    logger.error(
-                        f"Error sending code to {self.account.phone}: {str(e)}",
-                        exc_info=True,
-                    )
-                    return False
+                retry_count += 1
+                if self._exponential_backoff:
+                    current_delay *= 2
+                await asyncio.sleep(current_delay)
 
-            return True
-
-        except Exception as e:
-            logger.error(
-                f"Connection error for {self.account.phone}: {e}", exc_info=True
-            )
-            return False
-
-    async def authorize(self, code: str) -> Optional[str]:
-        """Authorize account with received code"""
-        try:
-            if not self.client:
-                logger.error("Client not initialized")
-                return None
-
-            if not self._phone_code_hash:
+            except AuthKeyUnregistered:
+                logger.error(f"Session invalid for {self.account.phone}")
+                self.account.session_string = None
+                return False
+            except Exception as e:
                 logger.error(
-                    "No phone code hash available. Did you request a code first?"
+                    f"Connection error for {self.account.phone}: {e}", exc_info=True
                 )
-                return None
+                retry_count += 1
+                if self._exponential_backoff:
+                    current_delay *= 2
+                await asyncio.sleep(current_delay)
 
-            logger.info(f"Starting authorization for account {self.account.phone}")
+        return False
+
+    async def request_code(self) -> Tuple[bool, Optional[str]]:
+        """
+        Request authorization code from Telegram.
+
+        :return: Tuple of (success, error_message)
+        """
+        if not self.client:
+            return False, "Client not initialized"
+
+        try:
+            sent = await self.client.send_code(self.account.phone)
+            if not sent or not sent.phone_code_hash:
+                return False, "Failed to get phone code hash"
+
+            self._phone_code_hash = sent.phone_code_hash
+            self.account.request_code()
+            return True, None
+
+        except FloodWait as e:
+            self.account.set_flood_wait(e.value)
+            return False, f"FloodWait: {e.value} seconds"
+        except PhoneNumberInvalid:
+            return False, "Invalid phone number"
+        except BadRequest as e:
+            if "PHONE_NUMBER_BANNED" in str(e):
+                self.account.status = AccountStatus.blocked
+                return False, "Phone number is banned"
+            return False, str(e)
+        except Exception as e:
+            return False, str(e)
+
+    async def sign_in(
+        self, code: str, password: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Sign in with the provided code and optional 2FA password.
+
+        :param code: Authorization code
+        :param password: Two-factor authentication password if needed
+        :return: Tuple of (success, error_message)
+        """
+        try:
+            if not self._phone_code_hash:
+                return False, "No phone code hash available"
 
             try:
-                logger.info(f"Attempting to sign in with code for {self.account.phone}")
                 signed_in = await self.client.sign_in(
                     phone_number=self.account.phone,
                     phone_code_hash=self._phone_code_hash,
                     phone_code=code,
                 )
-                logger.info(
-                    f"Sign in result for {self.account.phone}: {type(signed_in)}"
-                )
 
-                # Handle 2FA if needed
-                if isinstance(signed_in, bool) and not signed_in:
-                    logger.error(f"Failed to sign in account {self.account.phone}")
-                    self.account.status = AccountStatus.new
-                    return None
+                # Handle successful sign in
+                if signed_in:
+                    session_string = await self.export_session_string()
+                    if session_string:
+                        self.account.activate(session_string)
+                        return True, None
+                    return False, "Failed to export session string"
 
-                # Export session string
-                logger.info(f"Exporting session string for {self.account.phone}")
-                session_string = await self.client.export_session_string()
-                if self.account.activate(session_string):
-                    logger.info(f"Successfully activated account {self.account.phone}")
-                    return session_string
+                return False, "Sign in failed"
 
-                logger.error(f"Failed to activate account {self.account.phone}")
-                return None
+            except SessionPasswordNeeded:
+                if not password:
+                    self.account.status = AccountStatus.password_requested
+                    return False, "Two-factor authentication required"
+
+                try:
+                    await self.client.check_password(password)
+                    session_string = await self.export_session_string()
+                    if session_string:
+                        self.account.activate(session_string)
+                        return True, None
+                    return False, "Failed to export session string"
+                except PasswordHashInvalid:
+                    return False, "Invalid two-factor authentication password"
 
             except PhoneCodeInvalid:
-                logger.error(f"Invalid code provided for account {self.account.phone}")
-                return None
+                return False, "Invalid code"
             except PhoneCodeExpired:
-                logger.error(f"Code expired for account {self.account.phone}")
                 self.account.status = AccountStatus.new
-                return None
-            except Exception as e:
-                logger.error(
-                    f"Error during sign in for {self.account.phone}: {str(e)}",
-                    exc_info=True,
-                )
-                return None
+                return False, "Code expired"
 
         except Exception as e:
-            logger.error(
-                f"Authorization failed for {self.account.phone}: {str(e)}",
-                exc_info=True,
-            )
-            return None
-
-    async def sign_in(self, code: str) -> bool:
-        """Sign in with the provided code using stored phone code hash"""
-        try:
-            logger.info(f"Starting authorization for account {self.account.phone}")
-            if not self._phone_code_hash:
-                logger.error(f"No phone code hash available for {self.account.phone}")
-                return False
-
-            await self.client.sign_in(
-                phone_number=self.account.phone,
-                phone_code_hash=self._phone_code_hash,
-                phone_code=code,
-            )
-            return True
-
-        except Exception:
-            logger.error(f"Invalid code provided for account {self.account.phone}")
-            return False
+            logger.error(f"Sign in error: {e}", exc_info=True)
+            return False, str(e)
 
     async def export_session_string(self) -> Optional[str]:
         """Export session string after successful authorization"""
         try:
             return await self.client.export_session_string()
         except Exception as e:
-            logger.error(
-                f"Failed to export session string for {self.account.phone}: {e}"
-            )
+            logger.error(f"Failed to export session string: {e}")
             return None
 
     async def send_message(self, username: str, text: str) -> bool:
-        """Send message to user"""
+        """
+        Send message to user with safety checks and error handling.
+
+        :param username: Target username
+        :param text: Message text
+        :return: True if message sent successfully
+        """
         try:
             if not self.client or not self.account.can_be_used:
                 return False
 
-            await self.client.send_message(username, text)
-            self.account.record_message()
-            return True
+            if not await self._ensure_connection():
+                return False
 
-        except FloodWait as e:
-            logger.warning(
-                f"Got FloodWait for {e.value} seconds "
-                "while sending message from {self.account.phone}"
-            )
-            self.account.set_flood_wait(e.value)
-            raise
+            # Используем цикл с обработкой FloodWait
+            while True:
+                try:
+                    await self.client.send_message(username, text)
+                    self.account.record_message()
+                    return True
+                except FloodWait as e:
+                    logger.warning(
+                        f"FloodWait: {e.value} seconds for {self.account.phone}"
+                    )
+                    self.account.set_flood_wait(e.value)
+                    # Добавляем небольшой множитель к времени ожидания
+                    await asyncio.sleep(e.value * self._flood_wait_sleep)
+                    continue
 
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
             return False
 
+    async def _ensure_connection(self) -> bool:
+        """
+        Ensure client is connected, reconnect if needed.
+
+        :return: True if connection is active
+        """
+        if not self.client.is_connected:
+            return await self.connect()
+        return True
+
     async def disconnect(self):
-        """Disconnect client"""
+        """Disconnect client and cleanup resources"""
         if self.client:
-            await self.client.disconnect()
-            self.client = None
+            try:
+                await self.client.disconnect()
+            except Exception as e:
+                logger.error(f"Error disconnecting client: {e}")
+            finally:
+                self.client = None

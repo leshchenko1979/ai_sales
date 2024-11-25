@@ -1,10 +1,11 @@
 import logging
 from typing import List
 
-from db.queries import AccountQueries
+from db.models import AccountStatus
+from db.queries import AccountQueries, with_queries
 
 from .client import AccountClient
-from .models import Account, AccountStatus
+from .models import Account
 from .monitoring import AccountMonitor
 from .notifications import AccountNotifier
 
@@ -19,14 +20,21 @@ class AccountRotation:
     - Балансировка нагрузки
     """
 
-    def __init__(self, queries: AccountQueries, notifier: AccountNotifier):
-        self.queries = queries
-        self.notifier = notifier
-        self.monitor = AccountMonitor(queries, notifier)
+    def __init__(self):
+        """Initialize rotation manager"""
+        self.notifier = AccountNotifier()
+        self.monitor = AccountMonitor()
 
-    async def rotate_accounts(self, min_active: int = 10) -> dict:
+    @with_queries(AccountQueries)
+    async def rotate_accounts(
+        self, queries: AccountQueries, min_active: int = 10
+    ) -> dict:
         """
         Ротация аккаунтов для поддержания нужного количества активных
+
+        :param queries: Database queries executor
+        :param min_active: Minimum number of active accounts to maintain
+        :return: Statistics dictionary
         """
         try:
             stats = {
@@ -38,7 +46,7 @@ class AccountRotation:
             }
 
             # Получаем все аккаунты
-            accounts = await self.queries.get_all_accounts()
+            accounts = await queries.get_all_accounts()
             stats["total"] = len(accounts)
 
             # Проверяем активные аккаунты
@@ -46,79 +54,88 @@ class AccountRotation:
 
             # Если активных достаточно - проверяем их состояние
             if len(active_accounts) >= min_active:
-                await self._check_active_accounts(active_accounts, stats)
-
+                await self._check_active_accounts(queries, active_accounts, stats)
             # Если активных мало - активируем новые
             else:
-                needed = min_active - len(active_accounts)
-                await self._activate_new_accounts(accounts, needed, stats)
+                await self._activate_new_accounts(
+                    queries, accounts, min_active - len(active_accounts), stats
+                )
 
             # Отправляем отчет
             await self.notifier.notify_rotation_report(stats)
             return stats
 
         except Exception as e:
-            logger.error(f"Failed to rotate accounts: {e}", exc_info=True)
-            return stats
+            logger.error(f"Error rotating accounts: {e}", exc_info=True)
+            return None
 
-    async def _check_active_accounts(self, accounts: List[Account], stats: dict):
-        """Проверка активных аккаунтов"""
-        for account in accounts:
-            try:
-                # Проверяем флуд-контроль
-                if not await self.monitor.check_flood_wait(account):
-                    stats["flood_wait"] += 1
-                    continue
+    @with_queries(AccountQueries)
+    async def _check_active_accounts(
+        self, queries: AccountQueries, accounts: List[Account], stats: dict
+    ) -> None:
+        """
+        Проверка активных аккаунтов
 
+        :param queries: Database queries executor
+        :param accounts: List of active accounts to check
+        :param stats: Statistics dictionary to update
+        """
+        try:
+            for account in accounts:
                 # Проверяем состояние
                 if not await self.monitor.check_account(account):
+                    # Отключаем проблемный аккаунт
+                    await queries.update_account_status(
+                        account.id, AccountStatus.disabled
+                    )
                     stats["disabled"] += 1
-
-            except Exception as e:
-                logger.error(
-                    f"Failed to check account {account.phone}: {e}", exc_info=True
-                )
-                stats["disabled"] += 1
-
-    async def _activate_new_accounts(
-        self, accounts: List[Account], needed: int, stats: dict
-    ):
-        """Активация новых аккаунтов"""
-        # Получаем неактивные аккаунты
-        inactive = [
-            a
-            for a in accounts
-            if a.status not in [AccountStatus.active, AccountStatus.blocked]
-            and not a.is_flood_wait
-        ]
-
-        # Пробуем активировать нужное количество
-        for account in inactive[:needed]:
-            try:
-                # Создаем клиент
-                client = AccountClient(account)
-                if not await client.connect():
                     continue
 
-                # Проверяем состояние
-                if await self.monitor.check_account(account):
-                    # Активируем аккаунт
-                    await account.activate()
+                # Проверяем флуд-контроль
+                if account.is_flood_wait:
+                    stats["flood_wait"] += 1
+
+        except Exception as e:
+            logger.error(f"Error checking active accounts: {e}", exc_info=True)
+
+    @with_queries(AccountQueries)
+    async def _activate_new_accounts(
+        self, queries: AccountQueries, accounts: List[Account], count: int, stats: dict
+    ) -> None:
+        """
+        Активация новых аккаунтов
+
+        :param queries: Database queries executor
+        :param accounts: List of all accounts
+        :param count: Number of accounts to activate
+        :param stats: Statistics dictionary to update
+        """
+        try:
+            # Получаем новые аккаунты
+            new_accounts = [a for a in accounts if a.status == AccountStatus.new]
+
+            for account in new_accounts[:count]:
+                # Пробуем активировать
+                client = AccountClient(account)
+                if await client.connect():
+                    await queries.update_account_status(
+                        account.id, AccountStatus.active
+                    )
                     stats["activated"] += 1
                 else:
-                    stats["disabled"] += 1
+                    await queries.update_account_status(
+                        account.id, AccountStatus.blocked
+                    )
+                    stats["blocked"] += 1
 
-            except Exception as e:
-                logger.error(
-                    f"Failed to activate account {account.phone}: {e}", exc_info=True
-                )
-                stats["disabled"] += 1
+        except Exception as e:
+            logger.error(f"Error activating new accounts: {e}", exc_info=True)
 
     async def get_active_accounts(self, count: int = 10) -> List[Account]:
         """Получение списка активных аккаунтов для работы"""
         try:
             # Получаем все активные аккаунты
-            accounts = await self.queries.get_active_accounts()
+            accounts = await AccountQueries().get_active_accounts()
 
             # Фильтруем по возможности использования
             available = [a for a in accounts if a.can_be_used and not a.is_flood_wait]

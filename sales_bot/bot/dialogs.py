@@ -1,10 +1,11 @@
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Tuple
 
 from accounts.manager import AccountManager
-from db.models import Dialog, DialogStatus, Message, MessageDirection
-from db.queries import DialogQueries, get_db
+from db.models import Dialog, DialogStatus, MessageDirection
+from db.queries import AccountQueries, DialogQueries, with_queries
 from pyrogram import filters
+from pyrogram.types import Message as PyrogramMessage
 
 from .client import app
 from .gpt import check_qualification, generate_initial_message, generate_response
@@ -12,34 +13,55 @@ from .gpt import check_qualification, generate_initial_message, generate_respons
 logger = logging.getLogger(__name__)
 
 
-async def get_active_dialog(db, username: str) -> Optional[Dialog]:
-    """Get active dialog with user"""
-    return (
-        db.query(Dialog)
-        .filter(
-            Dialog.target_username == username, Dialog.status == DialogStatus.active
-        )
-        .first()
-    )
+@with_queries(DialogQueries)
+async def get_dialog_history(
+    dialog_id: int, queries: DialogQueries
+) -> List[Dict[str, Any]]:
+    """
+    Получение истории диалога
 
-
-async def get_dialog_history(db, dialog_id: int) -> list:
-    """Получение истории диалога"""
-    messages = (
-        db.query(Message)
-        .filter(Message.dialog_id == dialog_id)
-        .order_by(Message.timestamp)
-        .all()
-    )
-
+    :param dialog_id: Dialog ID to get history for
+    :param queries: Dialog queries executor
+    :return: List of messages with direction and content
+    """
+    messages = await queries.get_dialog_messages(dialog_id)
     return [{"direction": msg.direction, "content": msg.content} for msg in messages]
 
 
-async def save_message(db, dialog_id: int, direction: MessageDirection, content: str):
-    """Save message"""
-    message = Message(dialog_id=dialog_id, direction=direction, content=content)
-    db.add(message)
-    db.commit()
+@with_queries(DialogQueries)
+async def check_and_process_message(
+    message: PyrogramMessage, dialog: Dialog, queries: DialogQueries
+) -> Tuple[str, bool]:
+    """
+    Проверка и обработка входящего сообщения
+
+    :param message: Incoming message
+    :param dialog: Active dialog
+    :param queries: Dialog queries executor
+    :return: Tuple of (response text, whether user is qualified)
+    """
+    # Save incoming message
+    message_text = message.text
+    await queries.save_message(dialog.id, MessageDirection.in_, message_text)
+
+    # Get dialog history
+    history = await get_dialog_history(dialog.id, queries)
+
+    # Check qualification
+    qualified, reason = await check_qualification(history)
+
+    # Generate response
+    if qualified:
+        response = (
+            "Отлично! Вы соответствуете нашим критериям. "
+            "Давайте организуем звонок с менеджером для обсуждения деталей. "
+            "В какое время вам удобно пообщаться?"
+        )
+        await queries.update_dialog_status(dialog.id, DialogStatus.qualified)
+    else:
+        response = await generate_response(history, message_text)
+
+    return response, qualified
 
 
 @app.on_message(
@@ -47,129 +69,108 @@ async def save_message(db, dialog_id: int, direction: MessageDirection, content:
     & ~filters.command(["start", "stop", "list", "view", "export", "export_all"])
     & ~filters.me
 )
-async def message_handler(client, message):
-    """Handle incoming messages"""
+@with_queries(DialogQueries, AccountQueries)
+async def message_handler(
+    client,
+    message: PyrogramMessage,
+    queries: DialogQueries,
+    account_queries: AccountQueries,
+):
+    """
+    Handle incoming messages
+
+    :param client: Pyrogram client
+    :param message: Incoming message
+    :param queries: Dialog queries executor
+    :param account_queries: Account queries executor
+    """
     username = message.from_user.username
     if not username:
         return
 
     try:
-        async with get_db() as db:
-            # Check for active dialog
-            dialog_queries = DialogQueries(db)
-            dialog = await dialog_queries.get_active_dialog(username)
-            if not dialog:
-                return
+        # Check for active dialog
+        dialog = await queries.get_active_dialog(username)
+        if not dialog:
+            return
 
-            # Save incoming message
-            message_text = message.text
-            await dialog_queries.save_message(
-                dialog.id, MessageDirection.in_, message_text
-            )
+        # Process message
+        response, qualified = await check_and_process_message(message, dialog, queries)
 
-            # Get dialog history
-            history = await dialog_queries.get_dialog_history(dialog.id)
+        # Get account manager
+        manager = AccountManager()
 
-            # Check qualification
-            qualified, reason = await check_qualification(history)
+        # Get available account (preferably the same one that was used before)
+        account = None
+        if dialog.account_id:
+            account = await account_queries.get_account_by_id(dialog.account_id)
+            if not account or not account.can_be_used:
+                account = await manager.get_available_account()
+        else:
+            account = await manager.get_available_account()
 
-            # Generate and send response
-            if qualified:
-                response = (
-                    "Отлично! Вы соответствуете нашим критериям. "
-                    "Давайте организуем звонок с менеджером для обсуждения деталей. "
-                    "В какое время вам удобно пообщаться?"
-                )
-                dialog.status = DialogStatus.qualified
-                db.commit()
-            else:
-                response = await generate_response(history, message_text)
+        if not account:
+            logger.error("No available accounts to send message")
+            return
 
-            # Get account manager
-            account_manager = AccountManager(db)
+        # Update dialog account if changed
+        if dialog.account_id != account.id:
+            await queries.update_dialog_account(dialog.id, account.id)
 
-            # Get available account (preferably the same one that was used before)
-            account = None
-            if dialog.account_id:
-                account = await account_manager.queries.get_account_by_id(
-                    dialog.account_id
-                )
-                if not account or not account.is_available:
-                    account = await account_manager.get_available_account()
-            else:
-                account = await account_manager.get_available_account()
-
-            if not account:
-                logger.error(f"No available accounts to respond in dialog {dialog.id}")
-                return
-
-            # Update dialog with account if needed
-            if not dialog.account_id:
-                dialog.account_id = account.id
-                db.commit()
-
-            # Send and save response
-            success = await account_manager.send_message(account, username, response)
-            if success:
-                await dialog_queries.save_message(
-                    dialog.id, MessageDirection.out, response
-                )
-                logger.info(f"Processed message in dialog {dialog.id} with @{username}")
-            else:
-                logger.error(f"Failed to send message in dialog {dialog.id}")
+        # Send response
+        if await manager.send_message(account, username, response):
+            # Save outgoing message
+            await queries.save_message(dialog.id, MessageDirection.out, response)
+        else:
+            logger.error(f"Failed to send message to {username}")
 
     except Exception as e:
-        logger.error(f"Error in message_handler: {e}", exc_info=True)
-        await message.reply_text(
-            "Извините, произошла техническая ошибка. Пожалуйста, попробуйте позже."
-        )
+        logger.error(f"Error handling message from {username}: {e}", exc_info=True)
 
 
-async def start_dialog_with_user(username: str) -> bool:
-    """Начало диалога с пользователем"""
+@with_queries(DialogQueries, AccountQueries)
+async def start_dialog_with_user(
+    username: str, queries: DialogQueries, account_queries: AccountQueries
+) -> bool:
+    """
+    Начало диалога с пользователем
+
+    :param username: Username to start dialog with
+    :param queries: Dialog queries executor
+    :param account_queries: Account queries executor
+    :return: True if dialog started successfully
+    """
     try:
-        async with get_db() as db:
-            dialog_queries = DialogQueries(db)
-            # Проверяем наличие активного диалога
-            existing_dialog = await dialog_queries.get_active_dialog(username)
-            if existing_dialog:
-                return False
+        # Check if user already has active dialog
+        existing_dialog = await queries.get_active_dialog(username)
+        if existing_dialog:
+            logger.warning(f"User {username} already has active dialog")
+            return False
 
-            # Получаем доступный аккаунт
-            account_manager = AccountManager(db)
-            account = await account_manager.get_available_account()
-            if not account:
-                logger.error(f"No available accounts to start dialog with @{username}")
-                return False
+        # Get available account
+        manager = AccountManager()
+        account = await manager.get_available_account()
+        if not account:
+            logger.error("No available accounts")
+            return False
 
-            # Генерируем первое сообщение
-            initial_message = await generate_initial_message()
+        # Create dialog
+        dialog = await queries.create_dialog(username, account.id)
+        if not dialog:
+            logger.error(f"Failed to create dialog for {username}")
+            return False
 
-            # Пробуем отправить сообщение
-            success = await account_manager.send_message(
-                account, username, initial_message
-            )
-            if not success:
-                logger.error(f"Could not send message to @{username}", exc_info=True)
-                return False
-
-            # Создаем новый диалог
-            dialog = Dialog(
-                account_id=account.id,
-                target_username=username,
-                status=DialogStatus.active,
-            )
-            db.add(dialog)
-            db.commit()
-
-            # Save first message
-            await dialog_queries.save_message(
-                dialog.id, MessageDirection.out, initial_message
-            )
-
-            logger.info(f"Successfully started dialog with @{username}")
+        # Generate and send initial message
+        initial_message = await generate_initial_message()
+        if await manager.send_message(account, username, initial_message):
+            # Save outgoing message
+            await queries.save_message(dialog.id, MessageDirection.out, initial_message)
             return True
+        else:
+            logger.error(f"Failed to send initial message to {username}")
+            await queries.update_dialog_status(dialog.id, DialogStatus.failed)
+            return False
 
     except Exception as e:
-        logger.error(f"Error starting dialog with @{username}: {e}", exc_info=True)
+        logger.error(f"Error starting dialog with {username}: {e}", exc_info=True)
         return False

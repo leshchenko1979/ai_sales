@@ -8,6 +8,7 @@ from config import (
     MIN_MESSAGE_DELAY,
     RESET_HOUR_UTC,
 )
+from db.queries import AccountQueries, with_queries
 
 from .models import Account
 
@@ -79,3 +80,26 @@ class AccountSafety:
         # Если прошло время сброса - сбрасываем счетчик
         if not last_reset or now >= next_reset:
             self._daily_reset_time[account_id] = next_reset
+
+    @with_queries(AccountQueries)
+    async def reset_daily_limits(self, queries: AccountQueries):
+        """Reset daily message limits for all accounts"""
+        try:
+            await queries.reset_daily_limits()
+            logger.info("Daily message limits reset")
+
+            # Reset local counters
+            now = datetime.utcnow()
+            next_reset = now.replace(
+                hour=RESET_HOUR_UTC, minute=0, second=0, microsecond=0
+            )
+            if now.hour >= RESET_HOUR_UTC:
+                next_reset += timedelta(days=1)
+
+            # Update all daily reset times
+            for account_id in self._daily_reset_time:
+                self._daily_reset_time[account_id] = next_reset
+
+        except Exception as e:
+            logger.error(f"Failed to reset daily limits: {e}", exc_info=True)
+            raise

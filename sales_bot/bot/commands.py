@@ -4,7 +4,7 @@ from datetime import datetime
 from accounts.manager import AccountManager
 from accounts.monitoring import AccountMonitor
 from config import ADMIN_TELEGRAM_ID
-from db.queries import DialogQueries, get_db
+from db.queries import AccountQueries, DialogQueries, get_db, with_queries
 from pyrogram import Client
 from pyrogram.filters import command
 from pyrogram.types import Message as PyrogramMessage
@@ -45,6 +45,259 @@ def admin(func):
         return await func(client, message)
 
     return wrapper
+
+
+def _normalize_phone(phone: str) -> str:
+    """Normalize phone number to standard format"""
+    return phone.strip().replace("+", "")
+
+
+@app.on_message(command("add_account"))
+@admin
+async def cmd_add_account(client: Client, message: PyrogramMessage):
+    """Добавление нового аккаунта"""
+    try:
+        args = message.text.split()
+        if len(args) != 2:
+            await message.reply(
+                "Использование: /add_account phone\n" "Пример: /add_account 79001234567"
+            )
+            return
+
+        phone = _normalize_phone(args[1])
+
+        # Создаем аккаунт
+        manager = AccountManager()
+        account = await manager.get_or_create_account(phone)
+
+        if not account:
+            await message.reply("Не удалось добавить аккаунт.")
+            return
+
+        # Запрашиваем код авторизации
+        if await manager.request_code(phone):
+            await message.reply(
+                "Аккаунт добавлен. Введите код подтверждения командой:\n"
+                f"/authorize {phone} код"
+            )
+        else:
+            await message.reply("Не удалось запросить код авторизации.")
+
+    except Exception as e:
+        logger.error(
+            f"Error in cmd_add_account: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
+
+
+@app.on_message(command("authorize"))
+@admin
+async def cmd_authorize(client: Client, message: PyrogramMessage):
+    """Авторизация аккаунта"""
+    try:
+        args = message.text.split()
+        if len(args) != 3:
+            await message.reply(
+                "Использование: /authorize phone code\n"
+                "Пример: /authorize 79001234567 12345"
+            )
+            return
+
+        phone = _normalize_phone(args[1])
+        code = args[2]
+
+        # Авторизуем аккаунт
+        manager = AccountManager()
+        success = await manager.authorize_account(phone, code)
+
+        if success:
+            await message.reply("Аккаунт успешно авторизован.")
+        else:
+            await message.reply(
+                "Не удалось авторизовать аккаунт. Проверьте код и попробуйте снова."
+            )
+
+    except Exception as e:
+        logger.error(
+            f"Error in cmd_authorize: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
+
+
+@app.on_message(command("list_accounts"))
+@admin
+@with_queries(AccountQueries)
+async def cmd_list_accounts(
+    client: Client, message: PyrogramMessage, queries: AccountQueries
+):
+    """Список всех аккаунтов"""
+    try:
+        # Получаем все аккаунты
+        accounts = await queries.get_all_accounts()
+        if not accounts:
+            await message.reply("Нет добавленных аккаунтов.")
+            return
+
+        # Формируем статистику
+        stats = {
+            "total": len(accounts),
+            "active": 0,
+            "disabled": 0,
+            "blocked": 0,
+            "flood_wait": 0,
+        }
+
+        # Формируем список
+        account_list = []
+        for account in accounts:
+            # Обновляем статистику
+            stats[account.status.value] += 1
+            if account.is_flood_wait:
+                stats["flood_wait"] += 1
+
+            # Добавляем в список
+            status_emoji = STATUS_EMOJIS.get(
+                account.status.value, STATUS_EMOJIS["unknown"]
+            )
+            account_list.append(
+                f"{status_emoji} {account.phone} - {account.status.value}"
+                + (" (flood wait)" if account.is_flood_wait else "")
+            )
+
+        # Формируем сообщение
+        message_text = "Список аккаунтов:\n\n"
+        message_text += "\n".join(account_list)
+        message_text += f"\n\nВсего: {stats['total']}"
+        message_text += f"\nАктивных: {stats['active']}"
+        message_text += f"\nОтключенных: {stats['disabled']}"
+        message_text += f"\nЗаблокированных: {stats['blocked']}"
+        message_text += f"\nВ флуд-контроле: {stats['flood_wait']}"
+
+        await message.reply(message_text)
+
+    except Exception as e:
+        logger.error(
+            f"Error in cmd_list_accounts: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
+
+
+@app.on_message(command("check_account"))
+@admin
+@with_queries(AccountQueries)
+async def cmd_check_account(
+    client: Client, message: PyrogramMessage, queries: AccountQueries
+):
+    """Проверка состояния аккаунта"""
+    try:
+        args = message.text.split()
+        if len(args) != 2:
+            await message.reply(
+                "Использование: /check_account phone\n"
+                "Пример: /check_account 79001234567"
+            )
+            return
+
+        phone = _normalize_phone(args[1])
+
+        # Получаем аккаунт
+        account = await queries.get_account_by_phone(phone)
+        if not account:
+            await message.reply("Аккаунт не найден.")
+            return
+
+        # Проверяем состояние
+        monitor = AccountMonitor()
+        if await monitor.check_account(account):
+            await message.reply(
+                f"Аккаунт {phone} в порядке.\n"
+                f"Статус: {account.status.value}\n"
+                f"Последнее использование: {account.last_used_at}"
+            )
+        else:
+            await message.reply(
+                f"Аккаунт {phone} недоступен.\n"
+                f"Статус: {account.status.value}"
+                + (" (flood wait)" if account.is_flood_wait else "")
+            )
+
+    except Exception as e:
+        logger.error(
+            f"Error in cmd_check_account: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
+
+
+@app.on_message(command("check_all_accounts"))
+@admin
+async def cmd_check_all_accounts(client: Client, message: PyrogramMessage):
+    """Проверка всех аккаунтов"""
+    try:
+        monitor = AccountMonitor()
+        stats = await monitor.check_accounts()
+
+        if not stats:
+            await message.reply("Не удалось проверить аккаунты.")
+            return
+
+        # Формируем отчет
+        report = "Результаты проверки:\n\n"
+        report += f"Всего аккаунтов: {stats['total']}\n"
+        report += f"Активных: {stats['active']}\n"
+        report += f"Отключенных: {stats['disabled']}\n"
+        report += f"Заблокированных: {stats['blocked']}\n"
+        report += f"В флуд-контроле: {stats['flood_wait']}"
+
+        await message.reply(report)
+
+    except Exception as e:
+        logger.error(
+            f"Error in cmd_check_all_accounts: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
+
+
+@app.on_message(command("resend_code"))
+@admin
+async def cmd_resend_code(client: Client, message: PyrogramMessage):
+    """Повторная отправка кода авторизации"""
+    try:
+        args = message.text.split()
+        if len(args) != 2:
+            await message.reply(
+                "Использование: /resend_code phone\n" "Пример: /resend_code 79001234567"
+            )
+            return
+
+        phone = _normalize_phone(args[1])
+
+        # Запрашиваем код
+        manager = AccountManager()
+        if await manager.request_code(phone):
+            await message.reply(
+                "Код отправлен повторно. Введите его командой:\n"
+                f"/authorize {phone} код"
+            )
+        else:
+            await message.reply("Не удалось отправить код повторно.")
+
+    except Exception as e:
+        logger.error(
+            f"Error in cmd_resend_code: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
 
 
 @app.on_message(command("start"))
@@ -265,269 +518,3 @@ async def help_command(client: Client, message: PyrogramMessage):
             extra={"user_id": message.from_user.id, "command": message.text},
         )
         await message.reply_text(ERROR_MSG)
-
-
-def _normalize_phone(phone: str) -> str:
-    """Normalize phone number to standard format"""
-    return phone.strip().replace("+", "")
-
-
-@app.on_message(command("add_account"))
-@admin
-async def cmd_add_account(client: Client, message: PyrogramMessage):
-    """Добавление нового аккаунта"""
-    try:
-        args = message.text.split()
-        if len(args) != 2:
-            await message.reply(
-                "Использование: /add_account phone\n" "Пример: /add_account 79001234567"
-            )
-            return
-
-        phone = _normalize_phone(args[1])
-
-        # Создаем аккаунт
-        async with get_db() as session:
-            account_manager = AccountManager(session)
-            account = await account_manager.add_account(phone)
-
-            if not account:
-                await message.reply("Не удалось добавить аккаунт.")
-                return
-
-            await message.reply(
-                "Аккаунт добавлен. Введите код подтверждения командой:\n"
-                f"/authorize {phone} код"
-            )
-
-    except Exception as e:
-        logger.error(
-            f"Error in cmd_add_account: {e}",
-            exc_info=True,
-            extra={"user_id": message.from_user.id, "command": message.text},
-        )
-        await message.reply(ERROR_MSG)
-
-
-@app.on_message(command("authorize"))
-@admin
-async def cmd_authorize(client: Client, message: PyrogramMessage):
-    """Авторизация аккаунта"""
-    try:
-        args = message.text.split()
-        if len(args) != 3:
-            await message.reply(
-                "Использование: /authorize phone code\n"
-                "Пример: /authorize 79001234567 12345"
-            )
-            return
-
-        phone = _normalize_phone(args[1])
-        code = args[2]
-
-        # Авторизуем аккаунт
-        async with get_db() as session:
-            account_manager = AccountManager(session)
-            success = await account_manager.authorize_account(phone, code)
-
-            if success:
-                await message.reply("Аккаунт успешно авторизован.")
-            else:
-                await message.reply(
-                    "Не удалось авторизовать аккаунт. Проверьте код и попробуйте снова."
-                )
-
-    except Exception as e:
-        logger.error(
-            f"Error in cmd_authorize: {e}",
-            exc_info=True,
-            extra={"user_id": message.from_user.id, "command": message.text},
-        )
-        await message.reply(ERROR_MSG)
-
-
-@app.on_message(command("list_accounts"))
-@admin
-async def cmd_list_accounts(client: Client, message: PyrogramMessage):
-    """Список всех аккаунтов"""
-    try:
-        async with get_db() as session:
-            account_manager = AccountManager(session)
-            accounts = await account_manager.queries.get_all_accounts()
-
-            if not accounts:
-                await message.reply("Нет добавленных аккаунтов.")
-                return
-
-            response = "Список аккаунтов:\n\n"
-            for acc in accounts:
-                status_emoji = STATUS_EMOJIS.get(acc.status, STATUS_EMOJIS["unknown"])
-                status_text = {
-                    "active": "Активен",
-                    "disabled": "Отключен",
-                    "blocked": "Заблокирован",
-                    "unknown": "Неизвестно",
-                }.get(acc.status, "Неизвестно")
-
-                response += (
-                    f"{status_emoji} {acc.phone}\n"
-                    f"├ ID: {acc.id}\n"
-                    f"├ Статус: {status_text}\n"
-                    f"├ Сообщений сегодня: {acc.daily_messages}\n"
-                    f"└ Последнее использование: {acc.last_used or 'никогда'}\n\n"
-                )
-
-            await message.reply(response)
-
-    except Exception as e:
-        logger.error(
-            f"Error in cmd_list_accounts: {e}",
-            exc_info=True,
-            extra={"user_id": message.from_user.id, "command": message.text},
-        )
-        await message.reply(ERROR_MSG)
-
-
-@app.on_message(command("disable_account"))
-@admin
-async def cmd_disable_account(client: Client, message: PyrogramMessage):
-    """Отключение аккаунта"""
-    try:
-        args = message.text.split()
-        if len(args) != 2:
-            await message.reply(
-                "Использование: /disable_account phone\n"
-                "Пример: /disable_account 79001234567"
-            )
-            return
-
-        phone = _normalize_phone(args[1])
-
-        # Отключаем аккаунт
-        async with get_db() as session:
-            account_manager = AccountManager(session)
-            success = await account_manager.queries.update_account_status(
-                phone, "disabled"
-            )
-
-            if success:
-                await message.reply("Аккаунт успешно отключен.")
-            else:
-                await message.reply(
-                    "Не удалось отключить аккаунт. Проверьте номер телефона."
-                )
-
-    except Exception as e:
-        logger.error(
-            f"Error in cmd_disable_account: {e}",
-            exc_info=True,
-            extra={"user_id": message.from_user.id, "command": message.text},
-        )
-        await message.reply(ERROR_MSG)
-
-
-@app.on_message(command("check_account"))
-@admin
-async def cmd_check_account(client: Client, message: PyrogramMessage):
-    """Проверка состояния аккаунта"""
-    try:
-        args = message.text.split()
-        if len(args) != 2:
-            await message.reply(
-                "Использование: /check_account phone\n"
-                "Пример: /check_account 79001234567"
-            )
-            return
-
-        phone = _normalize_phone(args[1])
-
-        async with get_db() as session:
-            account_manager = AccountManager(session)
-            account = await account_manager.queries.get_account_by_phone(phone)
-
-            if not account:
-                await message.reply("Аккаунт не найден.")
-                return
-
-            monitor = AccountMonitor(session)
-            is_working = await monitor.check_account(account)
-
-            status_emoji = "✅" if is_working else "❌"
-            await message.reply(
-                f"{status_emoji} Аккаунт {phone}\n"
-                f"Статус: {account.status}\n"
-                f"Сообщений сегодня: {account.daily_messages}\n"
-                f"Последнее использование: {account.last_used or 'никогда'}"
-            )
-
-    except Exception as e:
-        logger.error(
-            f"Error in cmd_check_account: {e}",
-            exc_info=True,
-            extra={"user_id": message.from_user.id, "command": message.text},
-        )
-        await message.reply(ERROR_MSG)
-
-
-@app.on_message(command("check_all_accounts"))
-@admin
-async def cmd_check_all_accounts(client: Client, message: PyrogramMessage):
-    """Проверка всех аккаунтов"""
-    try:
-        async with get_db() as session:
-            monitor = AccountMonitor(session)
-            stats = await monitor.check_all_accounts()
-
-            await message.reply(
-                "Результаты проверки:\n\n"
-                f"Всего аккаунтов: {stats['total']}\n"
-                f"✅ Работает: {stats['active']}\n"
-                f"🔴 Отключено: {stats['disabled']}\n"
-                f"⛔ Заблокировано: {stats['blocked']}"
-            )
-
-    except Exception as e:
-        logger.error(
-            f"Error in cmd_check_all_accounts: {e}",
-            exc_info=True,
-            extra={"user_id": message.from_user.id, "command": message.text},
-        )
-        await message.reply(ERROR_MSG)
-
-
-@app.on_message(command("resend_code"))
-@admin
-async def cmd_resend_code(client: Client, message: PyrogramMessage):
-    """Handler for /resend_code command"""
-    try:
-        args = message.text.split()
-        if len(args) != 2:
-            await message.reply(
-                "Использование: /resend_code phone\n" "Пример: /resend_code 79001234567"
-            )
-            return
-
-        phone = _normalize_phone(args[1])
-
-        async with get_db() as session:
-            account_manager = AccountManager(session)
-            success = await account_manager.resend_code(phone)
-
-            if success:
-                await message.reply(
-                    "Код авторизации отправлен повторно.\n"
-                    f"Используйте /authorize {phone} код для авторизации."
-                )
-            else:
-                await message.reply(
-                    "Не удалось отправить код. "
-                    "Проверьте номер телефона и попробуйте позже."
-                )
-
-    except Exception as e:
-        logger.error(
-            f"Error in cmd_resend_code: {e}",
-            exc_info=True,
-            extra={"user_id": message.from_user.id, "command": message.text},
-        )
-        await message.reply(ERROR_MSG)
