@@ -1,7 +1,7 @@
 import time
 from typing import Dict
 
-from sales_bot.config import MIN_MESSAGE_DELAY
+from config import MIN_MESSAGE_DELAY
 
 from .models import Account
 
