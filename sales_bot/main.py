@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 from bot.client import app
+from bot.commands import *  # noqa: F403 F401
 from db.migrate import create_tables
 from pyrogram import idle
 from pyrogram.types import BotCommand
