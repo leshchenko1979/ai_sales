@@ -5,7 +5,8 @@ from accounts.manager import AccountManager
 from accounts.monitoring import AccountMonitor
 from config import ADMIN_TELEGRAM_ID
 from db.queries import DialogQueries, get_db
-from pyrogram import Client, filters
+from pyrogram import Client
+from pyrogram.filters import command
 from pyrogram.types import Message as PyrogramMessage
 from utils.export import export_all_dialogs, export_dialog
 
@@ -24,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 async def check_admin(message: PyrogramMessage) -> bool:
     """Check admin rights"""
-    if message.from_user.id != ADMIN_TELEGRAM_ID:
+    if message.from_user.id != ADMIN_TELEGRAM_ID or not bool(
+        message.chat and message.chat.type == "private"
+    ):
         await message.reply_text(UNAUTHORIZED_MSG)
         logger.warning(
             f"Unauthorized access attempt from user {message.from_user.id} "
@@ -45,8 +48,8 @@ def admin_only(func):
     return wrapper
 
 
-@app.on_message(filters.command("start") & filters.private)
 @admin_only
+@app.on_message(command("start"))
 async def start_command(client: Client, message: PyrogramMessage):
     """Handler for /start @username command"""
     try:
@@ -74,7 +77,7 @@ async def start_command(client: Client, message: PyrogramMessage):
         await message.reply_text(ERROR_MSG)
 
 
-@app.on_message(filters.command("stop") & filters.private)
+@app.on_message(command("stop"))
 @admin_only
 async def stop_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /stop N"""
@@ -108,7 +111,7 @@ async def stop_command(client: Client, message: PyrogramMessage):
         await message.reply_text(ERROR_MSG)
 
 
-@app.on_message(filters.command("list") & filters.private)
+@app.on_message(command("list"))
 @admin_only
 async def list_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /list"""
@@ -136,7 +139,7 @@ async def list_command(client: Client, message: PyrogramMessage):
         await message.reply_text(ERROR_MSG)
 
 
-@app.on_message(filters.command("view") & filters.private)
+@app.on_message(command("view"))
 @admin_only
 async def view_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /view N"""
@@ -173,7 +176,7 @@ async def view_command(client: Client, message: PyrogramMessage):
         await message.reply_text(ERROR_MSG)
 
 
-@app.on_message(filters.command("export") & filters.private)
+@app.on_message(command("export"))
 @admin_only
 async def export_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /export N"""
@@ -201,7 +204,7 @@ async def export_command(client: Client, message: PyrogramMessage):
         await message.reply_text(ERROR_MSG)
 
 
-@app.on_message(filters.command("export_all") & filters.private)
+@app.on_message(command("export_all"))
 @admin_only
 async def export_all_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /export_all"""
@@ -223,7 +226,7 @@ async def export_all_command(client: Client, message: PyrogramMessage):
         await message.reply_text(ERROR_MSG)
 
 
-@app.on_message(filters.command("help") & filters.private)
+@app.on_message(command("help"))
 @admin_only
 async def help_command(client: Client, message: PyrogramMessage):
     """Handler for /help command"""
@@ -264,7 +267,7 @@ async def help_command(client: Client, message: PyrogramMessage):
         await message.reply_text(ERROR_MSG)
 
 
-@app.on_message(filters.command("add_account") & filters.private)
+@app.on_message(command("add_account"))
 @admin_only
 async def cmd_add_account(client: Client, message: PyrogramMessage):
     """Добавление нового аккаунта"""
@@ -302,7 +305,7 @@ async def cmd_add_account(client: Client, message: PyrogramMessage):
         await message.reply(ERROR_MSG)
 
 
-@app.on_message(filters.command("authorize") & filters.private)
+@app.on_message(command("authorize"))
 @admin_only
 async def cmd_authorize(client: Client, message: PyrogramMessage):
     """Авторизация аккаунта"""
@@ -339,7 +342,7 @@ async def cmd_authorize(client: Client, message: PyrogramMessage):
         await message.reply(ERROR_MSG)
 
 
-@app.on_message(filters.command("list_accounts") & filters.private)
+@app.on_message(command("list_accounts"))
 @admin_only
 async def cmd_list_accounts(client: Client, message: PyrogramMessage):
     """Список всех аккаунтов"""
@@ -374,7 +377,7 @@ async def cmd_list_accounts(client: Client, message: PyrogramMessage):
         await message.reply(ERROR_MSG)
 
 
-@app.on_message(filters.command("disable_account") & filters.private)
+@app.on_message(command("disable_account"))
 @admin_only
 async def cmd_disable_account(client: Client, message: PyrogramMessage):
     """Отключение аккаунта"""
@@ -413,7 +416,7 @@ async def cmd_disable_account(client: Client, message: PyrogramMessage):
         await message.reply(ERROR_MSG)
 
 
-@app.on_message(filters.command("check_account") & filters.private)
+@app.on_message(command("check_account"))
 @admin_only
 async def cmd_check_account(client: Client, message: PyrogramMessage):
     """Проверка состояния аккаунта"""
@@ -456,7 +459,7 @@ async def cmd_check_account(client: Client, message: PyrogramMessage):
         await message.reply(ERROR_MSG)
 
 
-@app.on_message(filters.command("check_all_accounts") & filters.private)
+@app.on_message(command("check_all_accounts"))
 @admin_only
 async def cmd_check_all_accounts(client: Client, message: PyrogramMessage):
     """Проверка всех аккаунтов"""

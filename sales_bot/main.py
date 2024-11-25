@@ -1,10 +1,10 @@
 import asyncio
 import logging
-from pathlib import Path
 
 from bot.client import app
+
+# Import commands after client is defined
 from bot.commands import *  # noqa: F403 F401
-from db.migrate import create_tables
 from pyrogram import idle
 from pyrogram.types import BotCommand
 from scheduler import AccountScheduler
@@ -32,46 +32,65 @@ COMMANDS = [
 async def register_commands(app):
     """Register bot commands in Telegram"""
     try:
+        # First ensure we're connected
+        if not app.is_connected:
+            await app.start()
+
+        # Clear existing commands
+        await app.set_bot_commands([])
+
+        # Register new commands
         await app.set_bot_commands(
             [BotCommand(command, description) for command, description in COMMANDS]
         )
         logger.info("Bot commands registered successfully")
     except Exception as e:
         logger.error(f"Failed to register bot commands: {e}", exc_info=True)
+        raise
 
 
 async def main():
     """Main application entry point"""
     try:
         setup_logging()
-        await create_tables()
+        logger.info("Starting bot application...")
 
-        # Delete potentially corrupt session file
-        session_file = Path("admin_bot.session")
-        if session_file.exists():
-            try:
-                session_file.unlink()  # Delete the file
-                logger.info("Deleted existing session file")
-            except OSError as e:
-                logger.error(f"Failed to delete session file: {e}")
-
-        try:
+        # Start the bot first
+        if not app.is_connected:
             await app.start()
-            scheduler = AccountScheduler()
-            await scheduler.start()
+            logger.info("Bot started successfully")
 
-            await register_commands(app)
+        # Register commands
+        await register_commands(app)
 
-            await idle()
+        # Start scheduler
+        scheduler = AccountScheduler()
+        await scheduler.start()
+        logger.info("Scheduler started successfully")
 
-        finally:
-            await scheduler.stop()
-            await app.stop()
+        # Log ready state
+        logger.info("Bot is ready to handle commands")
+
+        # Wait for bot
+        await idle()
 
     except Exception as e:
         logger.error(f"Error in main: {e}", exc_info=True)
         raise
+    finally:
+        try:
+            if "scheduler" in locals():
+                await scheduler.stop()
+            if app and app.is_connected:
+                await app.stop()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
