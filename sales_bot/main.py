@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from bot.client import app
@@ -48,39 +47,38 @@ async def main():
         setup_logging()
         logger.info("Starting bot application...")
 
-        await app.start()
-        logger.info("Bot started successfully")
+        async with app:
+            logger.info("Bot started successfully")
 
-        # Register commands
-        await register_commands(app)
+            # Register commands
+            await register_commands(app)
 
-        # Start scheduler
-        scheduler = AccountScheduler()
-        await scheduler.start()
-        logger.info("Scheduler started successfully")
+            # Start scheduler
+            scheduler = AccountScheduler()
+            await scheduler.start()
+            logger.info("Scheduler started successfully")
 
-        # Log ready state
-        logger.info("Bot is ready to handle commands")
+            # Log ready state
+            logger.info("Bot is ready to handle commands")
 
-        # Wait for bot
-        await idle()
+            # Wait for bot
+            await idle()
 
     except Exception as e:
         logger.error(f"Error in main: {e}", exc_info=True)
         raise
+
     finally:
         try:
             if "scheduler" in locals():
                 await scheduler.stop()
-            if app and app.is_connected:
-                await app.stop()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        app.run(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
