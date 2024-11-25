@@ -22,20 +22,30 @@ class AccountClient:
         """Connect to Telegram using account credentials"""
         for attempt in range(self._connect_retries):
             try:
-                string = str(self.account.session_string)
-                logger.info(f"Connecting with session string: {string}")
-                string = self.account.session_string
-                logger.info(f"Connecting with session string: {string}")
-                self.client = Client(
-                    name=f"account_{self.account.id}",
-                    api_id=API_ID,
-                    api_hash=API_HASH,
-                    session_string=string or None,
-                    in_memory=True,
-                    device_model="iPhone 13",
-                    system_version="iOS 15.0",
-                    app_version="Telegram iOS 8.0",
+                logger.info(
+                    f"Connecting with session string: {self.account.session_string}"
                 )
+                device_data = {
+                    "device_model": "iPhone 13",
+                    "system_version": "iOS 15.0",
+                    "app_version": "Telegram iOS 8.0",
+                }
+                if self.account.session_string:
+                    self.client = Client(
+                        name=f"account_{self.account.id}",
+                        api_id=API_ID,
+                        api_hash=API_HASH,
+                        session_string=self.account.session_string,
+                        in_memory=True,
+                        **device_data,
+                    )
+                else:
+                    self.client = Client(
+                        name=f"account_{self.account.id}",
+                        api_id=API_ID,
+                        api_hash=API_HASH,
+                        **device_data,
+                    )
 
                 await self.client.start()
                 return True
