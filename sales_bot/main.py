@@ -4,6 +4,7 @@ from bot.client import app
 
 # Import commands after client is defined
 from bot.commands import *  # noqa: F403 F401
+from db.migrate import create_schema
 from db.queries import engine
 from pyrogram import idle
 from pyrogram.types import BotCommand
@@ -47,6 +48,7 @@ async def main():
     try:
         setup_logging()
         logger.info("Starting bot application...")
+        await create_schema()
 
         async with app:
             logger.info("Bot started successfully")

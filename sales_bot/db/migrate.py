@@ -8,9 +8,9 @@ from .queries import engine
 logger = logging.getLogger(__name__)
 
 
-async def create_tables():
+async def create_schema():
     """Создание базы данных и таблиц"""
-    logger.info("Creating database tables...")
+    logger.info("Creating database schema...")
 
     # Create database if it doesn't exist
     if not database_exists(engine.url):
@@ -18,5 +18,6 @@ async def create_tables():
         create_database(engine.url)
 
     # Create all tables
+    logger.info("Creating tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
