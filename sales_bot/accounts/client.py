@@ -23,9 +23,9 @@ class AccountClient:
         for attempt in range(self._connect_retries):
             try:
                 string = str(self.account.session_string)
-                logger.debug(f"Connecting with session string: {string}")
+                logger.info(f"Connecting with session string: {string}")
                 string = self.account.session_string
-                logger.debug(f"Connecting with session string: {string}")
+                logger.info(f"Connecting with session string: {string}")
                 self.client = Client(
                     name=f"account_{self.account.id}",
                     api_id=API_ID,

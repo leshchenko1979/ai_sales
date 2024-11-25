@@ -35,12 +35,13 @@ def setup_logging():
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
-    # Log application startup with precise timestamp
     logger = logging.getLogger(__name__)
+
+    # Add separator line for better log readability
+    logger.error("-" * 80)
+
+    # Log application startup with precise timestamp
     startup_msg = (
         f"Application starting at {datetime.now().isoformat(timespec='microseconds')}"
     )
     logger.error(startup_msg)  # Log at ERROR level as requested
-
-    # Add separator line for better log readability
-    logger.error("-" * 80)
