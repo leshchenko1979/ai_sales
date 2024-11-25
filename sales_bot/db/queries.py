@@ -183,6 +183,13 @@ class AccountQueries:
             logger.error(f"Error updating warmup time: {e}", exc_info=True)
             raise
 
+    async def get_all_accounts(self) -> List[Account]:
+        """Get all accounts regardless of their status"""
+        async with get_db() as session:
+            query = select(Account)
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
 
 class DialogQueries:
     def __init__(self, session: AsyncSession):
@@ -241,3 +248,10 @@ class DialogQueries:
             await self.session.rollback()
             logger.error(f"Error saving message: {e}", exc_info=True)
             raise
+
+    async def get_all_dialogs(self) -> list[Dialog]:
+        """Get all dialogs from the database"""
+        async with get_db() as session:
+            query = select(Dialog).order_by(Dialog.created_at.desc())
+            result = await session.execute(query)
+            return list(result.scalars().all())

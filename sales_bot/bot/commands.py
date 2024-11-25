@@ -348,7 +348,7 @@ async def cmd_list_accounts(client: Client, message: PyrogramMessage):
     try:
         async with get_db() as session:
             account_manager = AccountManager(session)
-            accounts = await account_manager.queries.get_all_accounts()
+            accounts = await account_manager.queries.get_active_accounts()
 
             if not accounts:
                 await message.reply("Нет добавленных аккаунтов.")
