@@ -52,7 +52,21 @@ jobs:
           ssh $DEPLOY_USER@$DEPLOY_HOST '
             cd /home/sales_bot &&
             sudo -u sales_bot python3 -m venv venv &&
-            sudo -u sales_bot venv/bin/pip install -r requirements.txt'
+            sudo -u sales_bot venv/bin/pip install -r requirements.txt &&
+            sudo -u sales_bot venv/bin/pip install pytest'
+
+      - name: Run tests
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh $DEPLOY_USER@$DEPLOY_HOST '
+            cd /home/sales_bot/sales_bot &&
+            sudo -u sales_bot ../venv/bin/pytest tests/ &&
+            if [ $? -ne 0 ]; then
+              echo "Tests failed! Aborting deployment." &&
+              exit 1
+            fi'
 
       - name: Configure systemd service
         env:
