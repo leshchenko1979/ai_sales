@@ -9,7 +9,14 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from .models import Account, AccountStatus, Dialog, DialogStatus, Message
+from .models import (
+    Account,
+    AccountStatus,
+    Dialog,
+    DialogStatus,
+    Message,
+    MessageDirection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +72,7 @@ class AccountQueries:
         """Get all active accounts ordered by message count"""
         result = await self.session.execute(
             select(Account)
-            .where(Account.status == AccountStatus.ACTIVE)
+            .where(Account.status == AccountStatus.active)
             .order_by(Account.daily_messages)
         )
         return result.scalars().all()
@@ -118,7 +125,7 @@ class AccountQueries:
         """Create new account"""
         try:
             account = Account(
-                phone=phone, status=AccountStatus.ACTIVE, daily_messages=0
+                phone=phone, status=AccountStatus.active, daily_messages=0
             )
             self.session.add(account)
             await self.session.commit()
@@ -187,7 +194,7 @@ class DialogQueries:
             dialog = Dialog(
                 target_username=username,
                 account_id=account_id,
-                status=DialogStatus.ACTIVE,
+                status=DialogStatus.active,
             )
             self.session.add(dialog)
             await self.session.commit()
@@ -208,7 +215,7 @@ class DialogQueries:
     async def get_active_dialogs(self) -> List[Dialog]:
         """Get all active dialogs"""
         result = await self.session.execute(
-            select(Dialog).where(Dialog.status == DialogStatus.ACTIVE)
+            select(Dialog).where(Dialog.status == DialogStatus.active)
         )
         return result.scalars().all()
 
@@ -220,3 +227,17 @@ class DialogQueries:
             .order_by(Message.timestamp)
         )
         return result.scalars().all()
+
+    async def save_message(
+        self, dialog_id: int, direction: MessageDirection, content: str
+    ):
+        """Save message"""
+        try:
+            message = Message(dialog_id=dialog_id, direction=direction, content=content)
+            self.session.add(message)
+            await self.session.commit()
+            return True
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(f"Error saving message: {e}", exc_info=True)
+            raise

@@ -1,3 +1,3 @@
-from db.models import Account, AccountStatus
+from db.models import Account, AccountStatus, DialogStatus, MessageDirection
 
-__all__ = ["Account", "AccountStatus"]
+__all__ = ["Account", "AccountStatus", "DialogStatus", "MessageDirection"]

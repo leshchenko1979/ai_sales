@@ -12,25 +12,25 @@ Base = declarative_base()
 class AccountStatus(str, Enum):
     """Account statuses"""
 
-    ACTIVE = "active"
-    DISABLED = "disabled"
-    BLOCKED = "blocked"
+    active = "active"
+    disabled = "disabled"
+    blocked = "blocked"
 
 
 class DialogStatus(str, Enum):
     """Dialog statuses"""
 
-    ACTIVE = "active"
-    QUALIFIED = "qualified"
-    STOPPED = "stopped"
-    FAILED = "failed"
+    active = "active"
+    qualified = "qualified"
+    stopped = "stopped"
+    failed = "failed"
 
 
 class MessageDirection(str, Enum):
     """Message directions"""
 
-    IN = "in"
-    OUT = "out"
+    in_ = "in"
+    out = "out"
 
 
 class Account(Base):
@@ -44,7 +44,7 @@ class Account(Base):
     status = Column(
         SQLAlchemyEnum(AccountStatus, name="accountstatus"),
         nullable=False,
-        default=AccountStatus.ACTIVE,
+        default=AccountStatus.active,
     )
     last_used = Column(DateTime)
     last_warmup = Column(DateTime)
@@ -60,7 +60,7 @@ class Account(Base):
         from config import MAX_DAILY_MESSAGES
 
         return (
-            self.status == AccountStatus.ACTIVE
+            self.status == AccountStatus.active
             and self.daily_messages < MAX_DAILY_MESSAGES
         )
 
@@ -79,7 +79,7 @@ class Dialog(Base):
     status = Column(
         SQLAlchemyEnum(DialogStatus, name="dialogstatus"),
         nullable=False,
-        default=DialogStatus.ACTIVE,
+        default=DialogStatus.active,
     )
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -117,20 +117,20 @@ Index(
     "idx_accounts_status_messages",
     Account.status,
     Account.daily_messages,
-    postgresql_where=Account.status == AccountStatus.ACTIVE,
+    postgresql_where=Account.status == AccountStatus.active,
 )
 
 Index(
     "idx_accounts_warmup",
     Account.status,
     Account.last_warmup,
-    postgresql_where=Account.status == AccountStatus.ACTIVE,
+    postgresql_where=Account.status == AccountStatus.active,
 )
 
 Index(
     "idx_dialogs_status",
     Dialog.status,
-    postgresql_where=Dialog.status == DialogStatus.ACTIVE,
+    postgresql_where=Dialog.status == DialogStatus.active,
 )
 
 Index("idx_messages_dialog_time", Message.dialog_id, Message.timestamp)

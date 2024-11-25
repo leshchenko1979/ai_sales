@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from accounts.manager import AccountManager
-from db.models import Dialog, Message
+from db.models import Dialog, DialogStatus, Message, MessageDirection
 from db.queries import DialogQueries, get_db
 from pyrogram import filters
 
@@ -13,10 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 async def get_active_dialog(db, username: str) -> Optional[Dialog]:
-    """Получение активного диалога с пользователем"""
+    """Get active dialog with user"""
     return (
         db.query(Dialog)
-        .filter(Dialog.target_username == username, Dialog.status == "active")
+        .filter(
+            Dialog.target_username == username, Dialog.status == DialogStatus.active
+        )
         .first()
     )
 
@@ -33,8 +35,8 @@ async def get_dialog_history(db, dialog_id: int) -> list:
     return [{"direction": msg.direction, "content": msg.content} for msg in messages]
 
 
-async def save_message(db, dialog_id: int, direction: str, content: str):
-    """Сохранение сообщения"""
+async def save_message(db, dialog_id: int, direction: MessageDirection, content: str):
+    """Save message"""
     message = Message(dialog_id=dialog_id, direction=direction, content=content)
     db.add(message)
     db.commit()
@@ -61,7 +63,9 @@ async def message_handler(client, message):
 
             # Save incoming message
             message_text = message.text
-            await dialog_queries.save_message(dialog.id, "in", message_text)
+            await dialog_queries.save_message(
+                dialog.id, MessageDirection.in_, message_text
+            )
 
             # Get dialog history
             history = await dialog_queries.get_dialog_history(dialog.id)
@@ -76,7 +80,7 @@ async def message_handler(client, message):
                     "Давайте организуем звонок с менеджером для обсуждения деталей. "
                     "В какое время вам удобно пообщаться?"
                 )
-                dialog.status = "qualified"
+                dialog.status = DialogStatus.qualified
                 db.commit()
             else:
                 response = await generate_response(history, message_text)
@@ -107,7 +111,9 @@ async def message_handler(client, message):
             # Send and save response
             success = await account_manager.send_message(account, username, response)
             if success:
-                await save_message(db, dialog.id, "out", response)
+                await dialog_queries.save_message(
+                    dialog.id, MessageDirection.out, response
+                )
                 logger.info(f"Processed message in dialog {dialog.id} with @{username}")
             else:
                 logger.error(f"Failed to send message in dialog {dialog.id}")
@@ -149,13 +155,17 @@ async def start_dialog_with_user(username: str) -> bool:
 
             # Создаем новый диалог
             dialog = Dialog(
-                account_id=account.id, target_username=username, status="active"
+                account_id=account.id,
+                target_username=username,
+                status=DialogStatus.active,
             )
             db.add(dialog)
             db.commit()
 
-            # Сохраняем первое сообщение
-            await save_message(db, dialog.id, "out", initial_message)
+            # Save first message
+            await dialog_queries.save_message(
+                dialog.id, MessageDirection.out, initial_message
+            )
 
             logger.info(f"Successfully started dialog with @{username}")
             return True

@@ -24,20 +24,20 @@ class AccountMonitor:
 
     async def check_account(self, account: Account) -> bool:
         """
-        Проверяет работоспособность аккаунта
-        Возвращает True если аккаунт работает
+        Check if account is working
+        Returns True if account is operational
         """
         try:
             client = AccountClient(account)
             if not await client.connect():
                 return False
 
-            # Пробуем получить информацию о себе
+            # Try to get account info
             me = await client.client.get_me()
             if not me:
                 return False
 
-            # Сбрасываем счетчик ошибок
+            # Reset error counter
             self._error_counts.pop(account.id, None)
             return True
 
@@ -47,13 +47,13 @@ class AccountMonitor:
             AuthKeyUnregistered,
             UserDeactivatedBan,
         ) as e:
-            # Явные признаки блокировки
+            # Clear signs of blocking
             logger.error(f"Account {account.phone} is blocked: {e}")
             await self._mark_account_blocked(account.id, str(e))
             return False
 
         except Exception as e:
-            # Другие ошибки - считаем их
+            # Count other errors
             error_count = self._error_counts.get(account.id, 0) + 1
             self._error_counts[account.id] = error_count
 
@@ -72,24 +72,25 @@ class AccountMonitor:
 
     async def check_all_accounts(self) -> dict:
         """
-        Проверяет все активные аккаунты
-        Возвращает статистику проверки
+        Check all active accounts
+        Returns check statistics
         """
         stats = {"total": 0, "active": 0, "disabled": 0, "blocked": 0}
 
-        async with get_db():
-            accounts = await self.queries.get_active_accounts()
+        async with get_db() as session:
+            queries = AccountQueries(session)
+            accounts = await queries.get_active_accounts()
             stats["total"] = len(accounts)
 
             for account in accounts:
                 if await self.check_account(account):
                     stats["active"] += 1
-                elif account.status == AccountStatus.BLOCKED:
+                elif account.status == AccountStatus.blocked:
                     stats["blocked"] += 1
                 else:
                     stats["disabled"] += 1
 
-        # Отправляем отчет
+        # Send report
         await self.notifier.notify_status_report(stats)
         return stats
 
@@ -100,7 +101,7 @@ class AccountMonitor:
             account = await queries.get_account_by_id(account_id)
             if account:
                 await queries.update_account_status_by_id(
-                    account_id, AccountStatus.BLOCKED
+                    account_id, AccountStatus.blocked
                 )
                 await self.notifier.notify_blocked(account, reason)
                 self._error_counts.pop(account_id, None)
@@ -112,7 +113,7 @@ class AccountMonitor:
             account = await queries.get_account_by_id(account_id)
             if account:
                 await queries.update_account_status_by_id(
-                    account_id, AccountStatus.DISABLED
+                    account_id, AccountStatus.disabled
                 )
                 await self.notifier.notify_disabled(account, reason)
                 self._error_counts.pop(account_id, None)
