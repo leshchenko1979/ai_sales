@@ -49,6 +49,7 @@ class AccountClient:
                         api_hash=API_HASH,
                         **device_data,
                     )
+                    await self.client.connect()
                     await self.client.send_code(self.account.phone)
                     return False
 
