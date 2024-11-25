@@ -39,6 +39,9 @@ class AccountClient:
                         in_memory=True,
                         **device_data,
                     )
+                    await self.client.start()
+                    return True
+
                 else:
                     self.client = Client(
                         name=f"account_{self.account.id}",
@@ -46,9 +49,8 @@ class AccountClient:
                         api_hash=API_HASH,
                         **device_data,
                     )
-
-                await self.client.start()
-                return True
+                    await self.client.send_code(self.account.phone)
+                    return False
 
             except AuthKeyUnregistered:
                 logger.error(
