@@ -1,55 +1,101 @@
 import asyncio
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from db.queries import AccountQueries, get_db
+from db.queries import AccountQueries
+from pyrogram.errors import FloodWait
 
 from .client import AccountClient
 from .models import Account
+from .monitor import AccountMonitor
 from .notifications import AccountNotifier
 
 logger = logging.getLogger(__name__)
 
+WARMUP_CHANNELS = [
+    "telegram",
+    "durov",
+    "tginfo",
+    "cryptocurrency",
+    "bitcoin",
+    "trading",
+]
+
 
 class AccountWarmup:
-    def __init__(self, db):
-        self.db = db
-        self.queries = AccountQueries(db)
-        self.notifier = AccountNotifier()
-        self._warmup_actions = [
-            self._join_channels,
-            self._update_profile,
-            self._send_messages_to_self,
-            self._read_channels,
-        ]
+    """
+    Компонент для прогрева аккаунтов
+    """
 
-    async def warmup_account(self, account: Account) -> bool:
-        """Прогрев одного аккаунта"""
+    def __init__(self, queries: AccountQueries, notifier: AccountNotifier):
+        self.queries = queries
+        self.notifier = notifier
+        self.monitor = AccountMonitor(queries, notifier)
+
+    async def warmup_accounts(self):
+        """Прогрев всех активных аккаунтов"""
         try:
-            logger.info(f"Starting warmup for account {account.phone}")
+            # Получаем активные аккаунты
+            accounts = await self.queries.get_active_accounts()
 
+            stats = {"total": len(accounts), "success": 0, "failed": 0, "flood_wait": 0}
+
+            # Прогреваем каждый аккаунт
+            for account in accounts:
+                try:
+                    # Проверяем флуд-контроль
+                    if not await self.monitor.check_flood_wait(account):
+                        stats["flood_wait"] += 1
+                        continue
+
+                    # Проверяем состояние аккаунта
+                    if not await self.monitor.check_account(account):
+                        stats["failed"] += 1
+                        continue
+
+                    # Прогреваем аккаунт
+                    if await self._warmup_account(account):
+                        stats["success"] += 1
+                    else:
+                        stats["failed"] += 1
+
+                except Exception as e:
+                    logger.error(
+                        f"Failed to warmup account {account.phone}: {e}", exc_info=True
+                    )
+                    stats["failed"] += 1
+
+            # Отправляем отчет
+            await self.notifier.notify_warmup_report(stats)
+
+        except Exception as e:
+            logger.error(f"Failed to warmup accounts: {e}", exc_info=True)
+
+    async def _warmup_account(self, account: Account) -> bool:
+        """
+        Прогрев одного аккаунта
+        Возвращает True если прогрев успешен
+        """
+        try:
+            # Создаем клиент
             client = AccountClient(account)
             if not await client.connect():
                 return False
 
-            try:
-                # Выполняем случайные действия прогрева
-                actions = random.sample(self._warmup_actions, k=2)
-                for action in actions:
-                    if not await action(client):
-                        return False
-                    # Делаем паузу между действиями
-                    await asyncio.sleep(random.randint(30, 120))
+            # Выполняем базовые действия
+            await self._perform_basic_actions(client)
 
-                # Обновляем статус аккаунта
-                async with get_db() as session:
-                    queries = AccountQueries(session)
-                    await queries.update_account_warmup_time(account.id)
-                return True
+            # Обновляем время последнего прогрева
+            await self.queries.update_last_warmup(account.id)
+            return True
 
-            finally:
-                await client.disconnect()
+        except FloodWait as e:
+            # Обрабатываем флуд-контроль
+            flood_wait_until = datetime.utcnow() + timedelta(seconds=e.value)
+            await self.queries.update_flood_wait(account.id, flood_wait_until)
+            await self.notifier.notify_flood_wait(account, e.value)
+            return False
 
         except Exception as e:
             logger.error(
@@ -57,129 +103,33 @@ class AccountWarmup:
             )
             return False
 
-    async def warmup_new_accounts(self) -> dict:
-        """Прогрев новых аккаунтов"""
-        stats = {"total": 0, "success": 0, "failed": 0}
-
+    async def _perform_basic_actions(self, client: AccountClient):
+        """Выполнение базовых действий для прогрева"""
         try:
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                accounts = await queries.get_accounts_for_warmup()
-            stats["total"] = len(accounts)
+            # Получаем информацию о своем аккаунте
+            me = await client.client.get_me()
+            if not me:
+                raise Exception("Failed to get account info")
 
-            for account in accounts:
+            # Читаем сообщения из нескольких каналов
+            channels = WARMUP_CHANNELS
+            for channel in channels:
                 try:
-                    if await self.warmup_account(account):
-                        stats["success"] += 1
-                    else:
-                        stats["failed"] += 1
+                    # Получаем последние сообщения
+                    messages = await client.client.get_history(channel, limit=5)
+
+                    # Читаем каждое сообщение
+                    for msg in messages:
+                        await client.client.read_history(channel, max_id=msg.id)
+                        await asyncio.sleep(random.uniform(1, 3))
+
                 except Exception as e:
-                    logger.error(
-                        f"Failed to warmup account {account.phone}: {e}",
-                        exc_info=True,
-                    )
-                    stats["failed"] += 1
+                    logger.warning(f"Failed to read channel {channel}: {e}")
+                    continue
 
-            await self._notify_warmup_results(stats)
-            return stats
+                # Пауза между каналами
+                await asyncio.sleep(random.uniform(2, 5))
 
         except Exception as e:
-            logger.error(f"Error during warmup: {e}", exc_info=True)
-            return stats
-
-    async def _join_channels(self, client: AccountClient) -> bool:
-        """Присоединение к каналам"""
-        channels = [
-            "telegram",
-            "durov",
-            "tginfo",
-            "cryptocurrency",
-            "bitcoin",
-            "trading",
-        ]
-        try:
-            # Присоединяемся к 2-3 случайным каналам
-            selected = random.sample(channels, k=random.randint(2, 3))
-            for channel in selected:
-                await client.client.join_chat(channel)
-                await asyncio.sleep(random.randint(60, 180))
-            return True
-        except Exception as e:
-            logger.error(f"Error joining channels: {e}", exc_info=True)
-            return False
-
-    async def _update_profile(self, client: AccountClient) -> bool:
-        """Обновление профиля"""
-        try:
-            # Устанавливаем имя и био
-            first_names = ["Alex", "Michael", "John", "David", "Robert"]
-            last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones"]
-            bios = [
-                "Crypto enthusiast",
-                "Investor",
-                "Trading professional",
-                "Financial analyst",
-                "Business developer",
-            ]
-
-            await client.client.update_profile(
-                first_name=random.choice(first_names),
-                last_name=random.choice(last_names),
-                bio=random.choice(bios),
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Error updating profile: {e}", exc_info=True)
-            return False
-
-    async def _send_messages_to_self(self, client: AccountClient) -> bool:
-        """Отправка сообщений самому себе"""
-        try:
-            await client.client.get_me()
-            messages = [
-                "Investment notes",
-                "Market analysis",
-                "Trading strategy",
-                "Portfolio update",
-                "Research materials",
-            ]
-
-            # Отправляем 2-3 сообщения
-            for _ in range(random.randint(2, 3)):
-                await client.client.send_message("me", random.choice(messages))
-                await asyncio.sleep(random.randint(30, 90))
-            return True
-        except Exception as e:
-            logger.error(f"Error sending self messages: {e}", exc_info=True)
-            return False
-
-    async def _read_channels(self, client: AccountClient) -> bool:
-        """Чтение сообщений в каналах"""
-        try:
-            # Получаем список подписанных каналов
-            async for dialog in client.client.get_dialogs():
-                if dialog.chat.type in ["channel", "supergroup"]:
-                    # Читаем сообщения
-                    async for message in client.client.get_chat_history(
-                        dialog.chat.id, limit=10
-                    ):
-                        await client.client.read_chat_history(
-                            dialog.chat.id, message.id
-                        )
-                        await asyncio.sleep(random.randint(5, 15))
-                    break  # Читаем только один случайный канал
-            return True
-        except Exception as e:
-            logger.error(f"Error reading channels: {e}", exc_info=True)
-            return False
-
-    async def _notify_warmup_results(self, stats: dict):
-        """Отправка уведомления о результатах прогрева"""
-        message = (
-            "🔥 Результаты прогрева аккаунтов\n\n"
-            f"Всего аккаунтов: {stats['total']}\n"
-            f"✅ Успешно: {stats['success']}\n"
-            f"❌ Неудачно: {stats['failed']}\n\n"
-            f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-        await self.notifier.send_notification(message)
+            logger.error(f"Failed to perform basic actions: {e}", exc_info=True)
+            raise

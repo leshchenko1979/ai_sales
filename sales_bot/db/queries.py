@@ -56,17 +56,24 @@ class AccountQueries:
 
     async def get_account_by_phone(self, phone: str) -> Optional[Account]:
         """Get account by phone number"""
-        result = await self.session.execute(
-            select(Account).where(Account.phone == phone)
-        )
-        return result.scalar_one_or_none()
+        try:
+            result = await self.session.execute(
+                select(Account).where(Account.phone == phone)
+            )
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Error getting account by phone {phone}: {e}", exc_info=True)
+            return None
 
     async def get_account_by_id(self, account_id: int) -> Optional[Account]:
         """Get account by ID"""
-        result = await self.session.execute(
-            select(Account).where(Account.id == account_id)
-        )
-        return result.scalar_one_or_none()
+        try:
+            return await self.session.get(Account, account_id)
+        except Exception as e:
+            logger.error(
+                f"Error getting account by ID {account_id}: {e}", exc_info=True
+            )
+            return None
 
     async def get_active_accounts(self) -> List[Account]:
         """Get all active accounts ordered by message count"""
@@ -121,35 +128,70 @@ class AccountQueries:
             logger.error(f"Error updating account status: {e}", exc_info=True)
             raise
 
-    async def create_account(self, phone: str) -> Optional[Account]:
-        """Create new account"""
+    async def update_account_status(
+        self, account_id: int, status: AccountStatus
+    ) -> bool:
+        """Update account status"""
         try:
-            account = Account(
-                phone=phone, status=AccountStatus.active, daily_messages=0
-            )
+            account = await self.session.get(Account, account_id)
+            if not account:
+                return False
+
+            account.status = status
+            account.updated_at = datetime.utcnow()
             self.session.add(account)
-            await self.session.commit()
-            await self.session.refresh(account)
-            return account
+            return True
+
         except Exception as e:
-            await self.session.rollback()
-            logger.error(f"Error creating account: {e}", exc_info=True)
-            raise
+            logger.error(f"Error updating account status: {e}", exc_info=True)
+            return False
+
+    async def create_account(self, phone_number: str) -> Account:
+        # Проверка существования аккаунта
+        existing_account = await self.session.execute(
+            select(Account).filter_by(phone=phone_number)
+        )
+        existing_account = existing_account.scalar_one_or_none()
+
+        if existing_account:
+            raise ValueError(f"Account with phone number {phone_number} already exists")
+
+        # Создание нового аккаунта
+        new_account = Account(
+            phone=phone_number,
+            status=AccountStatus.new,  # Начальный статус
+            last_used_at=datetime.utcnow(),  # Установка текущего времени
+            last_warmup_at=None,
+            flood_wait_until=None,
+            messages_sent=0,
+            is_available=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+
+        self.session.add(new_account)
+        await self.session.commit()
+        await self.session.refresh(new_account)
+
+        return new_account
 
     async def update_session(self, account_id: int, session_string: str) -> bool:
         """Update account session string"""
         try:
-            result = await self.session.execute(
-                update(Account)
-                .where(Account.id == account_id)
-                .values(session_string=session_string)
-            )
-            await self.session.commit()
-            return result.rowcount > 0
+            account = await self.session.get(Account, account_id)
+            if not account:
+                return False
+
+            account.session_string = session_string
+            account.status = AccountStatus.active
+            account.last_used_at = datetime.utcnow()
+
+            self.session.add(account)
+            return True
+
         except Exception as e:
-            await self.session.rollback()
-            logger.error(f"Error updating session: {e}", exc_info=True)
-            raise
+            logger.error(f"Database error: {e}", exc_info=True)
+            return False
 
     async def increment_messages(self, account_id: int) -> bool:
         """Increment daily message counter"""

@@ -1,131 +1,100 @@
 import logging
+from datetime import datetime
 
-from db.queries import AccountQueries, get_db
-from pyrogram.errors import (
-    AuthKeyUnregistered,
-    SessionRevoked,
-    UserDeactivated,
-    UserDeactivatedBan,
-)
+from db.queries import AccountQueries
 
 from .client import AccountClient
-from .models import Account, AccountStatus
+from .models import Account
 from .notifications import AccountNotifier
 
 logger = logging.getLogger(__name__)
 
 
 class AccountMonitor:
-    def __init__(self, db_session):
-        self.db = db_session
-        self.queries = AccountQueries(db_session)
-        self._error_counts = {}  # account_id -> error_count
-        self.notifier = AccountNotifier()
+    """
+    Компонент для мониторинга состояния аккаунтов
+    """
+
+    def __init__(self, queries: AccountQueries, notifier: AccountNotifier):
+        self.queries = queries
+        self.notifier = notifier
+
+    async def check_accounts(self):
+        """Проверка состояния всех аккаунтов"""
+        try:
+            # Получаем все аккаунты
+            accounts = await self.queries.get_all_accounts()
+
+            # Собираем статистику
+            stats = {
+                "total": len(accounts),
+                "active": 0,
+                "new": 0,
+                "code_requested": 0,
+                "password_requested": 0,
+                "disabled": 0,
+                "blocked": 0,
+                "flood_wait": 0,
+            }
+
+            # Проверяем каждый аккаунт
+            for account in accounts:
+                # Обновляем статистику по статусам
+                stats[account.status.value] += 1
+
+                # Проверяем флуд-контроль
+                if account.is_flood_wait:
+                    stats["flood_wait"] += 1
+
+            # Отправляем отчет
+            await self.notifier.notify_status_report(stats)
+
+        except Exception as e:
+            logger.error(f"Failed to check accounts: {e}", exc_info=True)
 
     async def check_account(self, account: Account) -> bool:
         """
-        Check if account is working
-        Returns True if account is operational
+        Проверка состояния конкретного аккаунта
+        Возвращает True если аккаунт в порядке
         """
-        client = None
         try:
+            # Создаем клиент
             client = AccountClient(account)
+
+            # Пробуем подключиться
             if not await client.connect():
+                await self.notifier.notify_disabled(
+                    account, "Не удалось подключиться к аккаунту"
+                )
                 return False
 
-            # Try to get account info
-            me = await client.client.get_me()
-            if not me:
+            # Проверяем базовое состояние
+            if not await client.check_auth():
+                await self.notifier.notify_disabled(account, "Аккаунт не авторизован")
                 return False
 
-            # Reset error counter
-            self._error_counts.pop(account.id, None)
             return True
 
-        except (
-            UserDeactivated,
-            SessionRevoked,
-            AuthKeyUnregistered,
-            UserDeactivatedBan,
-        ) as e:
-            # Clear signs of blocking
-            logger.error(f"Account {account.phone} is blocked: {e}")
-            await self._mark_account_blocked(account.id, str(e))
-            return False
-
         except Exception as e:
-            # Count other errors
-            error_count = self._error_counts.get(account.id, 0) + 1
-            self._error_counts[account.id] = error_count
-
-            logger.warning(f"Error checking account {account.phone}: {e}")
-
-            if error_count >= 3:
-                await self._mark_account_disabled(
-                    account.id, f"3 consecutive errors: {e}"
-                )
-                return False
-
+            logger.error(f"Failed to check account {account.phone}: {e}", exc_info=True)
             return False
 
-        finally:
-            if client:
-                await client.disconnect()
-
-    async def check_all_accounts(self) -> dict:
+    async def check_flood_wait(self, account: Account) -> bool:
         """
-        Check all active accounts
-        Returns check statistics
+        Проверка флуд-контроля аккаунта
+        Возвращает True если аккаунт не в флуд-контроле
         """
-        stats = {"total": 0, "active": 0, "disabled": 0, "blocked": 0}
-
         try:
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                accounts = await queries.get_active_accounts()
-                stats["total"] = len(accounts)
-
-                for account in accounts:
-                    try:
-                        if await self.check_account(account):
-                            stats["active"] += 1
-                        elif account.status == AccountStatus.blocked:
-                            stats["blocked"] += 1
-                        else:
-                            stats["disabled"] += 1
-                    except Exception as e:
-                        logger.error(f"Error checking account {account.phone}: {e}")
-                        stats["disabled"] += 1
-                        continue
-
-                # Send report
-                await self.notifier.notify_status_report(stats)
-                return stats
+            if account.is_flood_wait:
+                # Проверяем не истек ли флуд-контроль
+                if datetime.utcnow() >= account.flood_wait_until:
+                    await self.queries.clear_flood_wait(account.id)
+                    return True
+                return False
+            return True
 
         except Exception as e:
-            logger.error(f"Error in check_all_accounts: {e}", exc_info=True)
-            return stats
-
-    async def _mark_account_blocked(self, account_id: int, reason: str):
-        """Mark account as blocked"""
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            account = await queries.get_account_by_id(account_id)
-            if account:
-                await queries.update_account_status_by_id(
-                    account_id, AccountStatus.blocked
-                )
-                await self.notifier.notify_blocked(account, reason)
-                self._error_counts.pop(account_id, None)
-
-    async def _mark_account_disabled(self, account_id: int, reason: str):
-        """Mark account as disabled"""
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            account = await queries.get_account_by_id(account_id)
-            if account:
-                await queries.update_account_status_by_id(
-                    account_id, AccountStatus.disabled
-                )
-                await self.notifier.notify_disabled(account, reason)
-                self._error_counts.pop(account_id, None)
+            logger.error(
+                f"Failed to check flood wait for {account.phone}: {e}", exc_info=True
+            )
+            return False

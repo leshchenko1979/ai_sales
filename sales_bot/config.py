@@ -33,7 +33,9 @@ LOG_FILE = os.getenv("LOG_FILE", "/var/log/sales_bot/app.log")
 
 # Safety settings
 MIN_MESSAGE_DELAY = 30  # Minimum delay between messages in seconds
-MAX_DAILY_MESSAGES = 50  # Maximum messages per day per account
+MAX_MESSAGES_PER_HOUR = 20  # Maximum messages per hour per account
+MAX_MESSAGES_PER_DAY = 50  # Maximum messages per day per account
+RESET_HOUR_UTC = 0  # Hour in UTC when daily counters reset
 WARMUP_PERIOD_DAYS = 7  # Days between account warmups
 WARMUP_MESSAGE_COUNT = 3  # Number of messages to send during warmup
 

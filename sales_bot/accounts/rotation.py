@@ -1,141 +1,159 @@
 import logging
-from datetime import datetime, timedelta
 from typing import List
 
-from db.models import Account, AccountStatus
-from db.queries import AccountQueries, get_db
+from db.queries import AccountQueries
 
-from .monitoring import AccountMonitor
+from .client import AccountClient
+from .models import Account, AccountStatus
+from .monitor import AccountMonitor
 from .notifications import AccountNotifier
 
 logger = logging.getLogger(__name__)
 
 
-class AccountRotator:
-    def __init__(self, db):
-        self.db = db
-        self.queries = AccountQueries(db)
-        self.monitor = AccountMonitor(db)
-        self.notifier = AccountNotifier()
+class AccountRotation:
+    """
+    Компонент для ротации аккаунтов:
+    - Активация новых аккаунтов
+    - Отключение проблемных аккаунтов
+    - Балансировка нагрузки
+    """
 
-    async def rotate_accounts(self) -> dict:
-        """
-        Выполняет ротацию аккаунтов:
-        - Включает отдохнувшие аккаунты
-        - Отключает уставшие аккаунты
-        """
-        stats = {"enabled": 0, "disabled": 0, "errors": 0}
+    def __init__(self, queries: AccountQueries, notifier: AccountNotifier):
+        self.queries = queries
+        self.notifier = notifier
+        self.monitor = AccountMonitor(queries, notifier)
 
+    async def rotate_accounts(self, min_active: int = 10) -> dict:
+        """
+        Ротация аккаунтов для поддержания нужного количества активных
+        """
         try:
-            # Включаем отдохнувшие аккаунты
-            enabled = await self._enable_rested_accounts()
-            stats["enabled"] = len(enabled)
+            stats = {
+                "total": 0,
+                "activated": 0,
+                "disabled": 0,
+                "blocked": 0,
+                "flood_wait": 0,
+            }
 
-            # Отключаем уставшие аккаунты
-            disabled = await self._disable_tired_accounts()
-            stats["disabled"] = len(disabled)
+            # Получаем все аккаунты
+            accounts = await self.queries.get_all_accounts()
+            stats["total"] = len(accounts)
 
-            # Уведомляем о результатах
-            if enabled or disabled:
-                await self._notify_rotation_results(enabled, disabled)
+            # Проверяем активные аккаунты
+            active_accounts = [a for a in accounts if a.status == AccountStatus.active]
 
+            # Если активных достаточно - проверяем их состояние
+            if len(active_accounts) >= min_active:
+                await self._check_active_accounts(active_accounts, stats)
+
+            # Если активных мало - активируем новые
+            else:
+                needed = min_active - len(active_accounts)
+                await self._activate_new_accounts(accounts, needed, stats)
+
+            # Отправляем отчет
+            await self.notifier.notify_rotation_report(stats)
             return stats
 
         except Exception as e:
-            logger.error(f"Error in rotate_accounts: {e}", exc_info=True)
-            stats["errors"] += 1
+            logger.error(f"Failed to rotate accounts: {e}", exc_info=True)
             return stats
 
-    async def _enable_rested_accounts(self) -> List[Account]:
-        """Enable accounts that have rested enough"""
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            disabled_accounts = await queries.get_accounts_by_status(
-                AccountStatus.disabled
-            )
-            enabled_accounts = []
+    async def _check_active_accounts(self, accounts: List[Account], stats: dict):
+        """Проверка активных аккаунтов"""
+        for account in accounts:
+            try:
+                # Проверяем флуд-контроль
+                if not await self.monitor.check_flood_wait(account):
+                    stats["flood_wait"] += 1
+                    continue
 
-            for account in disabled_accounts:
-                try:
-                    if account.last_used:
-                        rest_time = datetime.now() - account.last_used
-                        if rest_time < timedelta(hours=24):
-                            continue
+                # Проверяем состояние
+                if not await self.monitor.check_account(account):
+                    stats["disabled"] += 1
 
-                    if await self.monitor.check_account(account):
-                        await queries.update_account_status_by_id(
-                            account.id, AccountStatus.active
-                        )
-                        enabled_accounts.append(account)
-                        logger.info(f"Enabled account {account.phone}")
+            except Exception as e:
+                logger.error(
+                    f"Failed to check account {account.phone}: {e}", exc_info=True
+                )
+                stats["disabled"] += 1
 
-                except Exception as e:
-                    logger.error(
-                        f"Error enabling account {account.phone}: {e}", exc_info=True
-                    )
-
-            return enabled_accounts
-
-    async def _disable_tired_accounts(self) -> List[Account]:
-        """Отключает аккаунты, которые много работали"""
-        # Получаем активные аккаунты
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            active_accounts = await queries.get_accounts_by_status(AccountStatus.active)
-            disabled_accounts = []
-
-            for account in active_accounts:
-                try:
-                    should_disable = False
-
-                    # Проверяем количество сообщений
-                    if (
-                        account.daily_messages
-                        >= self.db.config.MAX_DAILY_MESSAGES * 0.8
-                    ):
-                        should_disable = True
-                        reason = "daily limit approaching"
-
-                    # Проверяем время работы
-                    elif account.last_used:
-                        work_time = datetime.now() - account.last_used
-                        if work_time > timedelta(hours=12):
-                            should_disable = True
-                            reason = "long work period"
-
-                    if should_disable:
-                        # Отключаем аккаунт
-                        await queries.update_account_status_by_id(
-                            account.id, AccountStatus.disabled
-                        )
-                        disabled_accounts.append(account)
-                        logger.info(f"Disabled account {account.phone}: {reason}")
-
-                except Exception as e:
-                    logger.error(
-                        f"Error disabling account {account.phone}: {e}", exc_info=True
-                    )
-
-            return disabled_accounts
-
-    async def _notify_rotation_results(
-        self, enabled: List[Account], disabled: List[Account]
+    async def _activate_new_accounts(
+        self, accounts: List[Account], needed: int, stats: dict
     ):
-        """Отправляет уведомление о результатах ротации"""
-        if not enabled and not disabled:
-            return
+        """Активация новых аккаунтов"""
+        # Получаем неактивные аккаунты
+        inactive = [
+            a
+            for a in accounts
+            if a.status not in [AccountStatus.active, AccountStatus.blocked]
+            and not a.is_flood_wait
+        ]
 
-        message = "🔄 Ротация аккаунтов\n\n"
+        # Пробуем активировать нужное количество
+        for account in inactive[:needed]:
+            try:
+                # Создаем клиент
+                client = AccountClient(account)
+                if not await client.connect():
+                    continue
 
-        if enabled:
-            message += "✅ Включены:\n"
-            for acc in enabled:
-                message += f"• {acc.phone}\n"
-            message += "\n"
+                # Проверяем состояние
+                if await self.monitor.check_account(account):
+                    # Активируем аккаунт
+                    await account.activate()
+                    stats["activated"] += 1
+                else:
+                    stats["disabled"] += 1
 
-        if disabled:
-            message += "🔴 Отключены:\n"
-            for acc in disabled:
-                message += f"• {acc.phone}\n"
+            except Exception as e:
+                logger.error(
+                    f"Failed to activate account {account.phone}: {e}", exc_info=True
+                )
+                stats["disabled"] += 1
 
-        await self.notifier.send_notification(message)
+    async def get_active_accounts(self, count: int = 10) -> List[Account]:
+        """Получение списка активных аккаунтов для работы"""
+        try:
+            # Получаем все активные аккаунты
+            accounts = await self.queries.get_active_accounts()
+
+            # Фильтруем по возможности использования
+            available = [a for a in accounts if a.can_be_used and not a.is_flood_wait]
+
+            # Сортируем по количеству сообщений
+            available.sort(key=lambda x: x.messages_sent)
+
+            return available[:count]
+
+        except Exception as e:
+            logger.error(f"Failed to get active accounts: {e}", exc_info=True)
+            return []
+
+    async def disable_account(self, account: Account, reason: str):
+        """Отключение аккаунта"""
+        try:
+            # Отключаем аккаунт
+            await account.disable()
+
+            # Отправляем уведомление
+            await self.notifier.notify_disabled(account, reason)
+
+        except Exception as e:
+            logger.error(
+                f"Failed to disable account {account.phone}: {e}", exc_info=True
+            )
+
+    async def block_account(self, account: Account, reason: str):
+        """Блокировка аккаунта"""
+        try:
+            # Блокируем аккаунт
+            await account.block()
+
+            # Отправляем уведомление
+            await self.notifier.notify_blocked(account, reason)
+
+        except Exception as e:
+            logger.error(f"Failed to block account {account.phone}: {e}", exc_info=True)
