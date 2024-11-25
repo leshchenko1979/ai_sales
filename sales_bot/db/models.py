@@ -1,41 +1,14 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any
 
 from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
 
-class StrEnum(str, Enum):
-    """Base class for string enums with case-insensitive handling"""
-
-    @classmethod
-    def from_string(cls, value: str | None) -> "StrEnum | None":
-        """Safely convert string to enum value"""
-        if value is None:
-            return None
-        try:
-            return cls(value.lower())
-        except (ValueError, AttributeError):
-            return None
-
-    def _missing_(cls, value: Any) -> "StrEnum | None":
-        """Handle case-insensitive lookup"""
-        if isinstance(value, str):
-            value = value.lower()
-            for member in cls:
-                if member.value.lower() == value:
-                    return member
-        return None
-
-    def __str__(self) -> str:
-        """Return lowercase string value for database"""
-        return self.value.lower()
-
-
-class AccountStatus(StrEnum):
+class AccountStatus(str, Enum):
     """Статусы аккаунтов"""
 
     ACTIVE = "active"
@@ -43,7 +16,7 @@ class AccountStatus(StrEnum):
     BLOCKED = "blocked"
 
 
-class DialogStatus(StrEnum):
+class DialogStatus(str, Enum):
     """Статусы диалогов"""
 
     ACTIVE = "active"
@@ -52,11 +25,23 @@ class DialogStatus(StrEnum):
     FAILED = "failed"
 
 
-class MessageDirection(StrEnum):
+class MessageDirection(str, Enum):
     """Направления сообщений"""
 
     IN = "in"
     OUT = "out"
+
+
+# Create PostgreSQL ENUM types
+account_status_enum = PG_ENUM(
+    AccountStatus, name="accountstatus", create_type=False  # Since we create it in SQL
+)
+
+dialog_status_enum = PG_ENUM(DialogStatus, name="dialogstatus", create_type=False)
+
+message_direction_enum = PG_ENUM(
+    MessageDirection, name="messagedirection", create_type=False
+)
 
 
 class Account(Base):
@@ -67,7 +52,7 @@ class Account(Base):
     id = Column(BigInteger, primary_key=True)
     phone = Column(String, nullable=False, unique=True)
     session_string = Column(String)
-    status = Column(String, nullable=False, default=AccountStatus.ACTIVE.value)
+    status = Column(account_status_enum, nullable=False, default=AccountStatus.ACTIVE)
     last_used = Column(DateTime)
     last_warmup = Column(DateTime)
     daily_messages = Column(Integer, default=0)
@@ -82,12 +67,12 @@ class Account(Base):
         from config import MAX_DAILY_MESSAGES
 
         return (
-            self.status == AccountStatus.ACTIVE.value
+            self.status == AccountStatus.ACTIVE
             and self.daily_messages < MAX_DAILY_MESSAGES
         )
 
     def __repr__(self):
-        return f"<Account {self.phone} ({self.status})>"
+        return f"<Account {self.phone} ({self.status.value})>"
 
 
 class Dialog(Base):
@@ -98,7 +83,7 @@ class Dialog(Base):
     id = Column(BigInteger, primary_key=True)
     account_id = Column(BigInteger, ForeignKey("accounts.id"))
     target_username = Column(String, nullable=False)
-    status = Column(String, nullable=False, default=DialogStatus.ACTIVE.value)
+    status = Column(dialog_status_enum, nullable=False, default=DialogStatus.ACTIVE)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -118,14 +103,14 @@ class Message(Base):
 
     id = Column(BigInteger, primary_key=True)
     dialog_id = Column(BigInteger, ForeignKey("dialogs.id"))
-    direction = Column(String, nullable=False)
+    direction = Column(message_direction_enum, nullable=False)
     content = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     dialog = relationship("Dialog", back_populates="messages")
 
     def __repr__(self):
-        return f"<Message {self.id} ({self.direction})>"
+        return f"<Message {self.id} ({self.direction.value})>"
 
 
 # Индексы для оптимизации запросов
@@ -133,20 +118,20 @@ Index(
     "idx_accounts_status_messages",
     Account.status,
     Account.daily_messages,
-    postgresql_where=Account.status == AccountStatus.ACTIVE.value,
+    postgresql_where=Account.status == AccountStatus.ACTIVE,
 )
 
 Index(
     "idx_accounts_warmup",
     Account.status,
     Account.last_warmup,
-    postgresql_where=Account.status == AccountStatus.ACTIVE.value,
+    postgresql_where=Account.status == AccountStatus.ACTIVE,
 )
 
 Index(
     "idx_dialogs_status",
     Dialog.status,
-    postgresql_where=Dialog.status == DialogStatus.ACTIVE.value,
+    postgresql_where=Dialog.status == DialogStatus.ACTIVE,
 )
 
 Index("idx_messages_dialog_time", Message.dialog_id, Message.timestamp)
