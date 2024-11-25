@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from db.models import AccountStatus
-from db.queries import AccountQueries, get_db
+from db.queries import AccountQueries
 
 from .client import AccountClient
 from .models import Account
@@ -14,17 +14,16 @@ logger = logging.getLogger(__name__)
 class AccountManager:
     def __init__(self, db):
         self.db = db
+        self.queries = AccountQueries(db)
         self.safety = AccountSafety()
         self._active_clients: dict[int, AccountClient] = {}
 
     async def add_account(self, phone: str) -> Optional[Account]:
         """Add new account to system"""
         try:
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                account = await queries.create_account(phone)
-                if not account:
-                    return None
+            account = await self.queries.create_account(phone)
+            if not account:
+                return None
 
             # Create and connect client
             client = AccountClient(account)
@@ -57,9 +56,7 @@ class AccountManager:
                 return False
 
             # Update account in DB
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                return await queries.update_session(account.id, session_string)
+            return await self.queries.update_session(account.id, session_string)
 
         except Exception as e:
             logger.error(f"Failed to authorize account {phone}: {e}", exc_info=True)
@@ -67,9 +64,7 @@ class AccountManager:
 
     async def get_available_account(self) -> Optional[Account]:
         """Get account available for sending messages"""
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            accounts = await queries.get_active_accounts()
+        accounts = await self.queries.get_active_accounts()
 
         for account in accounts:
             if account.is_available and self.safety.can_send_message(account):
@@ -96,10 +91,8 @@ class AccountManager:
             success = await client.send_message(username, text)
             if success:
                 # Update account stats
-                async with get_db() as session:
-                    queries = AccountQueries(session)
-                    await queries.increment_messages(account.id)
-                    self.safety.record_message(account)
+                await self.queries.increment_messages(account.id)
+                self.safety.record_message(account)
 
             return success
 
@@ -109,14 +102,11 @@ class AccountManager:
             )
             return False
 
-    async def update_account_status(self, phone: str, status: AccountStatus) -> bool:
+    async def update_account_status(self, phone: str, status: AccountStatus):
         """Update account status"""
         try:
-            async with get_db() as session:
-                queries = AccountQueries(session)
-                return await queries.update_account_status(phone, status)
+            await self.queries.update_account_status(phone, status)
         except Exception as e:
             logger.error(
                 f"Failed to update account status for {phone}: {e}", exc_info=True
             )
-            return False

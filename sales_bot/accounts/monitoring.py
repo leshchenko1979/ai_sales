@@ -77,9 +77,8 @@ class AccountMonitor:
         """
         stats = {"total": 0, "active": 0, "disabled": 0, "blocked": 0}
 
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            accounts = await queries.get_active_accounts()
+        async with get_db():
+            accounts = await self.queries.get_active_accounts()
             stats["total"] = len(accounts)
 
             for account in accounts:
@@ -96,11 +95,10 @@ class AccountMonitor:
 
     async def _mark_account_blocked(self, account_id: int, reason: str):
         """Помечает аккаунт как заблокированный"""
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            account = await queries.get_account_by_id(account_id)
+        async with get_db():
+            account = await self.queries.get_account_by_id(account_id)
             if account:
-                await queries.update_account_status_by_id(
+                await self.queries.update_account_status_by_id(
                     account_id, AccountStatus.BLOCKED
                 )
             await self.notifier.notify_blocked(account, reason)
@@ -108,11 +106,10 @@ class AccountMonitor:
 
     async def _mark_account_disabled(self, account_id: int, reason: str):
         """Помечает аккаунт как отключенный"""
-        async with get_db() as session:
-            queries = AccountQueries(session)
-            account = await queries.get_account_by_id(account_id)
+        async with get_db():
+            account = await self.queries.get_account_by_id(account_id)
             if account:
-                await queries.update_account_status_by_id(
+                await self.queries.update_account_status_by_id(
                     account_id, AccountStatus.DISABLED
                 )
                 await self.notifier.notify_disabled(account, reason)
