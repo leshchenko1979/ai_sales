@@ -28,7 +28,7 @@ DATABASE_URL = os.getenv(
 )
 
 # Logging settings
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG")
 LOG_FILE = os.getenv("LOG_FILE", "/var/log/sales_bot/app.log")
 
 # Safety settings
