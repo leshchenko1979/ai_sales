@@ -89,7 +89,7 @@ class AccountQueries:
     async def get_accounts_for_warmup(self) -> List[Account]:
         """Get accounts for warmup"""
         result = await self.session.execute(
-            select(Account).where(Account.status == AccountStatus.ACTIVE)
+            select(Account).where(Account.status == AccountStatus.active)
         )
         return result.scalars().all()
 

@@ -139,7 +139,6 @@ REASON: причина"""
             if "REASON:" in result
             else "Причина не указана"
         )
-
         return qualified, reason
     except Exception as e:
         logger.error(f"Error checking qualification: {e}", exc_info=True)
