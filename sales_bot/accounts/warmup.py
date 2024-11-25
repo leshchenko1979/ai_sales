@@ -3,7 +3,7 @@ import logging
 import random
 from datetime import datetime
 
-from db.queries import AccountQueries
+from db.queries import AccountQueries, get_db
 
 from .client import AccountClient
 from .models import Account
@@ -60,23 +60,23 @@ class AccountWarmup:
         stats = {"total": 0, "success": 0, "failed": 0}
 
         try:
-            # Get accounts for warmup using self.queries
-            accounts = await self.queries.get_accounts_for_warmup()
-            stats["total"] = len(accounts)
+            async with get_db() as session:
+                accounts = await self.queries.get_accounts_for_warmup()
+                stats["total"] = len(accounts)
 
-            for account in accounts:
-                try:
-                    if await self.warmup_account(account):
-                        stats["success"] += 1
-                    else:
+                for account in accounts:
+                    try:
+                        if await self.warmup_account(account):
+                            stats["success"] += 1
+                        else:
+                            stats["failed"] += 1
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to warmup account {account.phone}: {e}",
+                            exc_info=True,
+                        )
                         stats["failed"] += 1
-                except Exception as e:
-                    logger.error(
-                        f"Failed to warmup account {account.phone}: {e}", exc_info=True
-                    )
-                    stats["failed"] += 1
 
-            # Send report
             await self._notify_warmup_results(stats)
             return stats
 

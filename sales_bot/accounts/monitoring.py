@@ -1,6 +1,6 @@
 import logging
 
-from db.queries import AccountQueries
+from db.queries import AccountQueries, get_db
 from pyrogram.errors import (
     AuthKeyUnregistered,
     SessionRevoked,
@@ -77,16 +77,17 @@ class AccountMonitor:
         """
         stats = {"total": 0, "active": 0, "disabled": 0, "blocked": 0}
 
-        accounts = await self.queries.get_active_accounts()
-        stats["total"] = len(accounts)
+        async with get_db():
+            accounts = await self.queries.get_active_accounts()
+            stats["total"] = len(accounts)
 
-        for account in accounts:
-            if await self.check_account(account):
-                stats["active"] += 1
-            elif account.status == AccountStatus.BLOCKED:
-                stats["blocked"] += 1
-            else:
-                stats["disabled"] += 1
+            for account in accounts:
+                if await self.check_account(account):
+                    stats["active"] += 1
+                elif account.status == AccountStatus.BLOCKED:
+                    stats["blocked"] += 1
+                else:
+                    stats["disabled"] += 1
 
         # Отправляем отчет
         await self.notifier.notify_status_report(stats)

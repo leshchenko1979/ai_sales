@@ -50,7 +50,7 @@ class AccountRotator:
         """Включает аккаунты, которые достаточно отдохнули"""
         # Получаем отключенные аккаунты
         disabled_accounts = await self.queries.get_accounts_by_status(
-            AccountStatus.DISABLED.value
+            AccountStatus.DISABLED
         )
         enabled_accounts = []
 
@@ -82,7 +82,7 @@ class AccountRotator:
         """Отключает аккаунты, которые много работали"""
         # Получаем активные аккаунты
         active_accounts = await self.queries.get_accounts_by_status(
-            AccountStatus.ACTIVE.value
+            AccountStatus.ACTIVE
         )
         disabled_accounts = []
 

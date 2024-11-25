@@ -78,6 +78,13 @@ class AccountQueries:
         )
         return result.scalars().all()
 
+    async def get_accounts_for_warmup(self) -> List[Account]:
+        """Get accounts for warmup"""
+        result = await self.session.execute(
+            select(Account).where(Account.status == AccountStatus.ACTIVE)
+        )
+        return result.scalars().all()
+
     async def update_account_status(self, phone: str, status: AccountStatus) -> bool:
         """Update account status"""
         try:
