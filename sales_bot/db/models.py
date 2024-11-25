@@ -10,17 +10,32 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
-class EnumType(str, Enum, TypeDecorator):
-    """Base enum class with SQLAlchemy integration"""
+class EnumType(TypeDecorator):
+    """Base class for SQLAlchemy enum handling"""
 
     impl = SQLEnum
     cache_ok = True
 
-    def __init__(self, *args, **kwargs):
-        TypeDecorator.__init__(self, self.__class__, *args, **kwargs)
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        """Convert enum to string when saving to DB"""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = self.impl.enums.from_string(value)
+        return str(value) if value else None
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        """Convert string from DB to enum"""
+        if value is None:
+            return None
+        return self.impl.enums.from_string(value)
+
+
+class StrEnum(str, Enum):
+    """Base class for string enums with case-insensitive handling"""
 
     @classmethod
-    def from_string(cls, value: str | None) -> "EnumType | None":
+    def from_string(cls, value: str | None) -> "StrEnum | None":
         """Safely convert string to enum value"""
         if value is None:
             return None
@@ -29,7 +44,7 @@ class EnumType(str, Enum, TypeDecorator):
         except (ValueError, AttributeError):
             return None
 
-    def _missing_(cls, value: Any) -> "EnumType | None":
+    def _missing_(cls, value: Any) -> "StrEnum | None":
         """Handle case-insensitive lookup"""
         if isinstance(value, str):
             value = value.lower()
@@ -42,22 +57,8 @@ class EnumType(str, Enum, TypeDecorator):
         """Return lowercase string value for database"""
         return self.value.lower()
 
-    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
-        """Convert enum to string when saving to DB"""
-        if value is None:
-            return None
-        if isinstance(value, str):
-            value = self.__class__.from_string(value)
-        return str(value) if value else None
 
-    def process_result_value(self, value: Any, dialect: Any) -> "EnumType | None":
-        """Convert string from DB to enum"""
-        if value is None:
-            return None
-        return self.__class__.from_string(value)
-
-
-class AccountStatus(EnumType):
+class AccountStatus(StrEnum):
     """Статусы аккаунтов"""
 
     ACTIVE = "active"
@@ -65,7 +66,7 @@ class AccountStatus(EnumType):
     BLOCKED = "blocked"
 
 
-class DialogStatus(EnumType):
+class DialogStatus(StrEnum):
     """Статусы диалогов"""
 
     ACTIVE = "active"
@@ -74,7 +75,7 @@ class DialogStatus(EnumType):
     FAILED = "failed"
 
 
-class MessageDirection(EnumType):
+class MessageDirection(StrEnum):
     """Направления сообщений"""
 
     IN = "in"
@@ -89,7 +90,9 @@ class Account(Base):
     id = Column(BigInteger, primary_key=True)
     phone = Column(String, nullable=False, unique=True)
     session_string = Column(String)
-    status = Column(AccountStatus, nullable=False, default=AccountStatus.ACTIVE)
+    status = Column(
+        EnumType(AccountStatus), nullable=False, default=AccountStatus.ACTIVE
+    )
     last_used = Column(DateTime)
     last_warmup = Column(DateTime)
     daily_messages = Column(Integer, default=0)
