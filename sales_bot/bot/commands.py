@@ -25,9 +25,7 @@ logger = logging.getLogger(__name__)
 
 async def check_admin(message: PyrogramMessage) -> bool:
     """Check admin rights"""
-    if message.from_user.id != ADMIN_TELEGRAM_ID or not bool(
-        message.chat and message.chat.type == "private"
-    ):
+    if message.from_user.id != ADMIN_TELEGRAM_ID:
         await message.reply_text(UNAUTHORIZED_MSG)
         logger.warning(
             f"Unauthorized access attempt from user {message.from_user.id} "
