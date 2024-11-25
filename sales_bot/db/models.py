@@ -9,7 +9,22 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
-class AccountStatus(str, Enum):
+class BaseEnum(str, Enum):
+    """Base class for all enums with case-insensitive handling"""
+
+    def _missing_(cls, value):
+        """Handle case-insensitive lookup"""
+        for member in cls:
+            if member.value.lower() == value.lower():
+                return member
+        return None
+
+    def __str__(self):
+        """Return lowercase string value for database"""
+        return self.value.lower()
+
+
+class AccountStatus(BaseEnum):
     """Статусы аккаунтов"""
 
     ACTIVE = "active"
@@ -17,7 +32,7 @@ class AccountStatus(str, Enum):
     BLOCKED = "blocked"
 
 
-class DialogStatus(str, Enum):
+class DialogStatus(BaseEnum):
     """Статусы диалогов"""
 
     ACTIVE = "active"
@@ -26,7 +41,7 @@ class DialogStatus(str, Enum):
     FAILED = "failed"
 
 
-class MessageDirection(str, Enum):
+class MessageDirection(BaseEnum):
     """Направления сообщений"""
 
     IN = "in"
