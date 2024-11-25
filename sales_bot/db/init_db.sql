@@ -10,16 +10,16 @@ CREATE DATABASE sales_bot OWNER sales_bot;
 \c sales_bot
 
 -- Create enum types
-CREATE TYPE account_status AS ENUM ('active', 'disabled', 'blocked');
-CREATE TYPE dialog_status AS ENUM ('active', 'qualified', 'stopped', 'failed');
-CREATE TYPE message_direction AS ENUM ('in', 'out');
+CREATE TYPE "accountstatus" AS ENUM ('active', 'disabled', 'blocked');
+CREATE TYPE "dialogstatus" AS ENUM ('active', 'qualified', 'stopped', 'failed');
+CREATE TYPE "messagedirection" AS ENUM ('in', 'out');
 
 -- Create tables
 CREATE TABLE accounts (
     id BIGSERIAL PRIMARY KEY,
     phone TEXT NOT NULL UNIQUE,
     session_string TEXT,
-    status account_status NOT NULL DEFAULT 'active',
+    status "accountstatus" NOT NULL DEFAULT 'active',
     last_used TIMESTAMP WITH TIME ZONE,
     last_warmup TIMESTAMP WITH TIME ZONE,
     daily_messages INTEGER DEFAULT 0,
@@ -31,7 +31,7 @@ CREATE TABLE dialogs (
     id BIGSERIAL PRIMARY KEY,
     account_id BIGINT REFERENCES accounts(id),
     target_username TEXT NOT NULL,
-    status dialog_status NOT NULL DEFAULT 'active',
+    status "dialogstatus" NOT NULL DEFAULT 'active',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -39,7 +39,7 @@ CREATE TABLE dialogs (
 CREATE TABLE messages (
     id BIGSERIAL PRIMARY KEY,
     dialog_id BIGINT REFERENCES dialogs(id),
-    direction message_direction NOT NULL,
+    direction "messagedirection" NOT NULL,
     content TEXT NOT NULL,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
