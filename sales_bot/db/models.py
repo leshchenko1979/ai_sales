@@ -67,7 +67,7 @@ class Account(Base):
         from config import MAX_DAILY_MESSAGES
 
         return (
-            self.status == AccountStatus.ACTIVE
+            self.status == AccountStatus.ACTIVE.value
             and self.daily_messages < MAX_DAILY_MESSAGES
         )
 

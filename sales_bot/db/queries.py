@@ -65,7 +65,7 @@ class AccountQueries:
         """Get all active accounts ordered by message count"""
         result = await self.session.execute(
             select(Account)
-            .where(Account.status == AccountStatus.ACTIVE)
+            .where(Account.status == AccountStatus.ACTIVE.value)
             .order_by(Account.daily_messages)
         )
         return result.scalars().all()
@@ -74,7 +74,7 @@ class AccountQueries:
         """Get accounts by status"""
         result = await self.session.execute(
             select(Account)
-            .where(Account.status == status)
+            .where(Account.status == status.value)
             .order_by(Account.last_used.nulls_first())
         )
         return result.scalars().all()
@@ -82,7 +82,7 @@ class AccountQueries:
     async def get_accounts_for_warmup(self) -> List[Account]:
         """Get accounts for warmup"""
         result = await self.session.execute(
-            select(Account).where(Account.status == AccountStatus.ACTIVE)
+            select(Account).where(Account.status == AccountStatus.ACTIVE.value)
         )
         return result.scalars().all()
 
@@ -90,7 +90,9 @@ class AccountQueries:
         """Update account status"""
         try:
             result = await self.session.execute(
-                update(Account).where(Account.phone == phone).values(status=status)
+                update(Account)
+                .where(Account.phone == phone)
+                .values(status=status.value)
             )
             await self.session.commit()
             return result.rowcount > 0
@@ -105,7 +107,9 @@ class AccountQueries:
         """Update account status by ID"""
         try:
             result = await self.session.execute(
-                update(Account).where(Account.id == account_id).values(status=status)
+                update(Account)
+                .where(Account.id == account_id)
+                .values(status=status.value)
             )
             await self.session.commit()
             return result.rowcount > 0
@@ -118,7 +122,7 @@ class AccountQueries:
         """Create new account"""
         try:
             account = Account(
-                phone=phone, status=AccountStatus.ACTIVE, daily_messages=0
+                phone=phone, status=AccountStatus.ACTIVE.value, daily_messages=0
             )
             self.session.add(account)
             await self.session.commit()
