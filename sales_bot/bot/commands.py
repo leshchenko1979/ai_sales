@@ -37,19 +37,20 @@ async def check_admin(message: PyrogramMessage) -> bool:
     return True
 
 
-def admin_only(func):
-    """Декоратор для проверки прав администратора"""
+def admin(func):
+    """Декоратор для проверки прав администратора и логирования"""
 
     async def wrapper(client: Client, message: PyrogramMessage):
         if not await check_admin(message):
             return
+        logger.info(f"Command {message.text} executed by admin {message.from_user.id}")
         return await func(client, message)
 
     return wrapper
 
 
-# @admin_only
 @app.on_message(command("start"))
+@admin
 async def start_command(client: Client, message: PyrogramMessage):
     """Handler for /start @username command"""
     try:
@@ -78,7 +79,7 @@ async def start_command(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("stop"))
-# @admin_only
+@admin
 async def stop_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /stop N"""
     try:
@@ -112,7 +113,7 @@ async def stop_command(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("list"))
-# @admin_only
+@admin
 async def list_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /list"""
     try:
@@ -140,7 +141,7 @@ async def list_command(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("view"))
-# @admin_only
+@admin
 async def view_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /view N"""
     try:
@@ -177,7 +178,7 @@ async def view_command(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("export"))
-# @admin_only
+@admin
 async def export_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /export N"""
     try:
@@ -205,7 +206,7 @@ async def export_command(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("export_all"))
-# @admin_only
+@admin
 async def export_all_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /export_all"""
     try:
@@ -227,7 +228,7 @@ async def export_all_command(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("help"))
-# @admin_only
+@admin
 async def help_command(client: Client, message: PyrogramMessage):
     """Handler for /help command"""
     try:
@@ -268,7 +269,7 @@ async def help_command(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("add_account"))
-# @admin_only
+@admin
 async def cmd_add_account(client: Client, message: PyrogramMessage):
     """Добавление нового аккаунта"""
     try:
@@ -306,7 +307,7 @@ async def cmd_add_account(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("authorize"))
-# @admin_only
+@admin
 async def cmd_authorize(client: Client, message: PyrogramMessage):
     """Авторизация аккаунта"""
     try:
@@ -343,7 +344,7 @@ async def cmd_authorize(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("list_accounts"))
-# @admin_only
+@admin
 async def cmd_list_accounts(client: Client, message: PyrogramMessage):
     """Список всех аккаунтов"""
     try:
@@ -378,7 +379,7 @@ async def cmd_list_accounts(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("disable_account"))
-# @admin_only
+@admin
 async def cmd_disable_account(client: Client, message: PyrogramMessage):
     """Отключение аккаунта"""
     try:
@@ -417,7 +418,7 @@ async def cmd_disable_account(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("check_account"))
-# @admin_only
+@admin
 async def cmd_check_account(client: Client, message: PyrogramMessage):
     """Проверка состояния аккаунта"""
     try:
@@ -460,7 +461,7 @@ async def cmd_check_account(client: Client, message: PyrogramMessage):
 
 
 @app.on_message(command("check_all_accounts"))
-# @admin_only
+@admin
 async def cmd_check_all_accounts(client: Client, message: PyrogramMessage):
     """Проверка всех аккаунтов"""
     try:
