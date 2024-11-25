@@ -22,11 +22,12 @@ class AccountClient:
         """Connect to Telegram using account credentials"""
         for attempt in range(self._connect_retries):
             try:
+                string = str(self.account.session_string)
                 self.client = Client(
                     name=f"account_{self.account.id}",
                     api_id=API_ID,
                     api_hash=API_HASH,
-                    session_string=self.account.session_string or None,
+                    session_string=string or None,
                     in_memory=True,
                     device_model="iPhone 13",
                     system_version="iOS 15.0",
@@ -46,7 +47,8 @@ class AccountClient:
             except Exception as e:
                 logger.warning(
                     f"Connection attempt {attempt + 1} failed "
-                    f"for account {self.account.phone}: {e}"
+                    f"for account {self.account.phone}: {e}",
+                    exc_info=True,
                 )
                 if attempt < self._connect_retries - 1:
                     await asyncio.sleep(self._retry_delay)
@@ -95,6 +97,8 @@ class AccountClient:
         """Disconnect client"""
         if self.client and self.client.is_connected:
             try:
+                # Save session string before disconnecting
+                self.account.session_string = await self.client.export_session_string()
                 await self.client.stop()
             except ConnectionError as e:
                 logger.debug(f"Client already disconnected: {e}")
