@@ -4,6 +4,7 @@ from bot.client import app
 
 # Import commands after client is defined
 from bot.commands import *  # noqa: F403 F401
+from db.queries import engine
 from pyrogram import idle
 from pyrogram.types import BotCommand
 from scheduler import AccountScheduler
@@ -72,6 +73,8 @@ async def main():
         try:
             if "scheduler" in locals():
                 await scheduler.stop()
+            # Close database connection pool
+            await engine.dispose()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}", exc_info=True)
 
