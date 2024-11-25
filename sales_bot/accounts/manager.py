@@ -30,7 +30,7 @@ class AccountManager:
             if not await client.connect():
                 return None
 
-            # Request authorization code (will be sent to phone)
+            # Request authorization code
             await client.client.send_code_request(phone)
 
             return account

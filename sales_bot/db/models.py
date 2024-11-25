@@ -1,15 +1,16 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, String
-from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
+from sqlalchemy import BigInteger, Column, DateTime
+from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlalchemy import ForeignKey, Index, Integer, String
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
 
 class AccountStatus(str, Enum):
-    """Статусы аккаунтов"""
+    """Account statuses"""
 
     ACTIVE = "active"
     DISABLED = "disabled"
@@ -17,7 +18,7 @@ class AccountStatus(str, Enum):
 
 
 class DialogStatus(str, Enum):
-    """Статусы диалогов"""
+    """Dialog statuses"""
 
     ACTIVE = "active"
     QUALIFIED = "qualified"
@@ -26,33 +27,25 @@ class DialogStatus(str, Enum):
 
 
 class MessageDirection(str, Enum):
-    """Направления сообщений"""
+    """Message directions"""
 
     IN = "in"
     OUT = "out"
 
 
-# Create PostgreSQL ENUM types
-account_status_enum = PG_ENUM(
-    AccountStatus, name="accountstatus", create_type=False  # Since we create it in SQL
-)
-
-dialog_status_enum = PG_ENUM(DialogStatus, name="dialogstatus", create_type=False)
-
-message_direction_enum = PG_ENUM(
-    MessageDirection, name="messagedirection", create_type=False
-)
-
-
 class Account(Base):
-    """Модель аккаунта Telegram"""
+    """Telegram account model"""
 
     __tablename__ = "accounts"
 
     id = Column(BigInteger, primary_key=True)
     phone = Column(String, nullable=False, unique=True)
     session_string = Column(String)
-    status = Column(account_status_enum, nullable=False, default=AccountStatus.ACTIVE)
+    status = Column(
+        SQLAlchemyEnum(AccountStatus, name="accountstatus"),
+        nullable=False,
+        default=AccountStatus.ACTIVE,
+    )
     last_used = Column(DateTime)
     last_warmup = Column(DateTime)
     daily_messages = Column(Integer, default=0)
@@ -67,23 +60,27 @@ class Account(Base):
         from config import MAX_DAILY_MESSAGES
 
         return (
-            self.status == AccountStatus.ACTIVE.value
+            self.status == AccountStatus.ACTIVE
             and self.daily_messages < MAX_DAILY_MESSAGES
         )
 
     def __repr__(self):
-        return f"<Account {self.phone} ({self.status.value})>"
+        return f"<Account {self.phone} ({self.status})>"
 
 
 class Dialog(Base):
-    """Модель диалога с пользователем"""
+    """Dialog model with user"""
 
     __tablename__ = "dialogs"
 
     id = Column(BigInteger, primary_key=True)
     account_id = Column(BigInteger, ForeignKey("accounts.id"))
     target_username = Column(String, nullable=False)
-    status = Column(dialog_status_enum, nullable=False, default=DialogStatus.ACTIVE)
+    status = Column(
+        SQLAlchemyEnum(DialogStatus, name="dialogstatus"),
+        nullable=False,
+        default=DialogStatus.ACTIVE,
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -97,23 +94,25 @@ class Dialog(Base):
 
 
 class Message(Base):
-    """Модель сообщения в диалоге"""
+    """Message model in dialog"""
 
     __tablename__ = "messages"
 
     id = Column(BigInteger, primary_key=True)
     dialog_id = Column(BigInteger, ForeignKey("dialogs.id"))
-    direction = Column(message_direction_enum, nullable=False)
+    direction = Column(
+        SQLAlchemyEnum(MessageDirection, name="messagedirection"), nullable=False
+    )
     content = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     dialog = relationship("Dialog", back_populates="messages")
 
     def __repr__(self):
-        return f"<Message {self.id} ({self.direction.value})>"
+        return f"<Message {self.id} ({self.direction})>"
 
 
-# Индексы для оптимизации запросов
+# Indexes for query optimization
 Index(
     "idx_accounts_status_messages",
     Account.status,
@@ -136,7 +135,7 @@ Index(
 
 Index("idx_messages_dialog_time", Message.dialog_id, Message.timestamp)
 
-# Экспортируем все модели
+# Export all models
 __all__ = [
     "Base",
     "Account",

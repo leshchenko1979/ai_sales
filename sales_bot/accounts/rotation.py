@@ -47,8 +47,7 @@ class AccountRotator:
             return stats
 
     async def _enable_rested_accounts(self) -> List[Account]:
-        """Включает аккаунты, которые достаточно отдохнули"""
-        # Получаем отключенные аккаунты
+        """Enable accounts that have rested enough"""
         async with get_db() as session:
             queries = AccountQueries(session)
             disabled_accounts = await queries.get_accounts_by_status(
@@ -58,15 +57,12 @@ class AccountRotator:
 
             for account in disabled_accounts:
                 try:
-                    # Проверяем время последнего использования
                     if account.last_used:
                         rest_time = datetime.now() - account.last_used
                         if rest_time < timedelta(hours=24):
                             continue
 
-                    # Проверяем работоспособность
                     if await self.monitor.check_account(account):
-                        # Включаем аккаунт
                         await queries.update_account_status_by_id(
                             account.id, AccountStatus.ACTIVE
                         )

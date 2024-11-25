@@ -9,7 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from .models import Account, AccountStatus, Dialog, Message
+from .models import Account, AccountStatus, Dialog, DialogStatus, Message
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class AccountQueries:
         """Get all active accounts ordered by message count"""
         result = await self.session.execute(
             select(Account)
-            .where(Account.status == AccountStatus.ACTIVE.value)
+            .where(Account.status == AccountStatus.ACTIVE)
             .order_by(Account.daily_messages)
         )
         return result.scalars().all()
@@ -74,7 +74,7 @@ class AccountQueries:
         """Get accounts by status"""
         result = await self.session.execute(
             select(Account)
-            .where(Account.status == status.value)
+            .where(Account.status == status)
             .order_by(Account.last_used.nulls_first())
         )
         return result.scalars().all()
@@ -82,7 +82,7 @@ class AccountQueries:
     async def get_accounts_for_warmup(self) -> List[Account]:
         """Get accounts for warmup"""
         result = await self.session.execute(
-            select(Account).where(Account.status == AccountStatus.ACTIVE.value)
+            select(Account).where(Account.status == AccountStatus.ACTIVE)
         )
         return result.scalars().all()
 
@@ -90,9 +90,7 @@ class AccountQueries:
         """Update account status"""
         try:
             result = await self.session.execute(
-                update(Account)
-                .where(Account.phone == phone)
-                .values(status=status.value)
+                update(Account).where(Account.phone == phone).values(status=status)
             )
             await self.session.commit()
             return result.rowcount > 0
@@ -107,9 +105,7 @@ class AccountQueries:
         """Update account status by ID"""
         try:
             result = await self.session.execute(
-                update(Account)
-                .where(Account.id == account_id)
-                .values(status=status.value)
+                update(Account).where(Account.id == account_id).values(status=status)
             )
             await self.session.commit()
             return result.rowcount > 0
@@ -122,7 +118,7 @@ class AccountQueries:
         """Create new account"""
         try:
             account = Account(
-                phone=phone, status=AccountStatus.ACTIVE.value, daily_messages=0
+                phone=phone, status=AccountStatus.ACTIVE, daily_messages=0
             )
             self.session.add(account)
             await self.session.commit()
@@ -189,7 +185,9 @@ class DialogQueries:
         """Create new dialog"""
         try:
             dialog = Dialog(
-                target_username=username, account_id=account_id, status="active"
+                target_username=username,
+                account_id=account_id,
+                status=DialogStatus.ACTIVE,
             )
             self.session.add(dialog)
             await self.session.commit()
@@ -210,7 +208,7 @@ class DialogQueries:
     async def get_active_dialogs(self) -> List[Dialog]:
         """Get all active dialogs"""
         result = await self.session.execute(
-            select(Dialog).where(Dialog.status == "active")
+            select(Dialog).where(Dialog.status == DialogStatus.ACTIVE)
         )
         return result.scalars().all()
 
