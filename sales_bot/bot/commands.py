@@ -178,7 +178,7 @@ async def view_command(client: Client, message: PyrogramMessage):
 @app.on_message(command("export"))
 @admin
 async def export_command(client: Client, message: PyrogramMessage):
-    """Обработчик команд�� /export N"""
+    """Обработчик команд /export N"""
     try:
         args = message.text.split()
         if len(args) != 2 or not args[1].isdigit():
@@ -267,20 +267,24 @@ async def help_command(client: Client, message: PyrogramMessage):
         await message.reply_text(ERROR_MSG)
 
 
+def _normalize_phone(phone: str) -> str:
+    """Normalize phone number to standard format"""
+    return phone.strip().replace("+", "")
+
+
 @app.on_message(command("add_account"))
 @admin
 async def cmd_add_account(client: Client, message: PyrogramMessage):
     """Добавление нового аккаунта"""
     try:
-        # Получаем номер телефона из команды
         args = message.text.split()
         if len(args) != 2:
             await message.reply(
-                "Использование: /add_account phone\nПример: /add_account +79001234567"
+                "Использование: /add_account phone\n" "Пример: /add_account 79001234567"
             )
             return
 
-        phone = args[1]
+        phone = _normalize_phone(args[1])
 
         # Создаем аккаунт
         async with get_db() as session:
@@ -310,18 +314,18 @@ async def cmd_add_account(client: Client, message: PyrogramMessage):
 async def cmd_authorize(client: Client, message: PyrogramMessage):
     """Авторизация аккаунта"""
     try:
-        # Получаем номер телефона и код из команды
         args = message.text.split()
         if len(args) != 3:
             await message.reply(
                 "Использование: /authorize phone code\n"
-                "Пример: /authorize +79001234567 12345"
+                "Пример: /authorize 79001234567 12345"
             )
             return
 
-        phone, code = args[1], args[2]
+        phone = _normalize_phone(args[1])
+        code = args[2]
 
-        # Авторизу��м аккаунт
+        # Авторизуем аккаунт
         async with get_db() as session:
             account_manager = AccountManager(session)
             success = await account_manager.authorize_account(phone, code)
@@ -349,19 +353,26 @@ async def cmd_list_accounts(client: Client, message: PyrogramMessage):
     try:
         async with get_db() as session:
             account_manager = AccountManager(session)
-            accounts = await account_manager.queries.get_active_accounts()
+            accounts = await account_manager.queries.get_all_accounts()
 
             if not accounts:
                 await message.reply("Нет добавленных аккаунтов.")
                 return
 
-            response = "Список аккау��тов:\n\n"
+            response = "Список аккаунтов:\n\n"
             for acc in accounts:
                 status_emoji = STATUS_EMOJIS.get(acc.status, STATUS_EMOJIS["unknown"])
+                status_text = {
+                    "active": "Активен",
+                    "disabled": "Отключен",
+                    "blocked": "Заблокирован",
+                    "unknown": "Неизвестно",
+                }.get(acc.status, "Неизвестно")
 
                 response += (
                     f"{status_emoji} {acc.phone}\n"
                     f"├ ID: {acc.id}\n"
+                    f"├ Статус: {status_text}\n"
                     f"├ Сообщений сегодня: {acc.daily_messages}\n"
                     f"└ Последнее использование: {acc.last_used or 'никогда'}\n\n"
                 )
@@ -382,16 +393,15 @@ async def cmd_list_accounts(client: Client, message: PyrogramMessage):
 async def cmd_disable_account(client: Client, message: PyrogramMessage):
     """Отключение аккаунта"""
     try:
-        # Получаем номер телефона из команды
         args = message.text.split()
         if len(args) != 2:
             await message.reply(
                 "Использование: /disable_account phone\n"
-                "Пример: /disable_account +79001234567"
+                "Пример: /disable_account 79001234567"
             )
             return
 
-        phone = args[1]
+        phone = _normalize_phone(args[1])
 
         # Отключаем аккаунт
         async with get_db() as session:
@@ -425,11 +435,11 @@ async def cmd_check_account(client: Client, message: PyrogramMessage):
         if len(args) != 2:
             await message.reply(
                 "Использование: /check_account phone\n"
-                "Пример: /check_account +79001234567"
+                "Пример: /check_account 79001234567"
             )
             return
 
-        phone = args[1]
+        phone = _normalize_phone(args[1])
 
         async with get_db() as session:
             account_manager = AccountManager(session)
@@ -493,12 +503,11 @@ async def cmd_resend_code(client: Client, message: PyrogramMessage):
         args = message.text.split()
         if len(args) != 2:
             await message.reply(
-                "Использование: /resend_code phone\n"
-                "Пример: /resend_code +79001234567"
+                "Использование: /resend_code phone\n" "Пример: /resend_code 79001234567"
             )
             return
 
-        phone = args[1]
+        phone = _normalize_phone(args[1])
 
         async with get_db() as session:
             account_manager = AccountManager(session)

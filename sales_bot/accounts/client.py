@@ -22,14 +22,13 @@ class AccountClient:
         """Connect to Telegram using account credentials"""
         for attempt in range(self._connect_retries):
             try:
-                # Create client with session string if exists, or create new
                 self.client = Client(
                     name=f"account_{self.account.id}",
                     api_id=API_ID,
                     api_hash=API_HASH,
-                    session_string=self.account.session_string,
+                    session_string=self.account.session_string or None,
                     in_memory=True,
-                    device_model="iPhone 13",  # Add device info to look more natural
+                    device_model="iPhone 13",
                     system_version="iOS 15.0",
                     app_version="Telegram iOS 8.0",
                 )
@@ -39,8 +38,8 @@ class AccountClient:
 
             except AuthKeyUnregistered:
                 logger.error(
-                    f"Session invalid for account {self.account.phone},"
-                    " needs reauthorization"
+                    f"Session invalid for account {self.account.phone}, "
+                    "needs reauthorization"
                 )
                 return False
 

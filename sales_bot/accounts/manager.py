@@ -19,9 +19,21 @@ class AccountManager:
         self.safety = AccountSafety()
         self._active_clients: dict[int, AccountClient] = {}
 
+    def _normalize_phone(self, phone: str) -> str:
+        """Normalize phone number to standard format"""
+        return (
+            phone.strip()
+            .replace("+", "")
+            .replace(" ", "")
+            .replace("-", "")
+            .replace("(", "")
+            .replace(")", "")
+        )
+
     async def add_account(self, phone: str) -> Optional[Account]:
         """Add new account to system"""
         try:
+            phone = self._normalize_phone(phone)
 
             # Check if account already exists
             existing = await self.queries.get_account_by_phone(phone)
@@ -41,9 +53,16 @@ class AccountManager:
                 try:
                     client = AccountClient(account)
                     if await client.connect():
-                        # Request authorization code
-                        await client.client.send_code(phone)
-                        return account
+                        try:
+                            # Send authorization code
+                            sent = await client.client.send_code(phone)
+                            if sent:
+                                return account
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to send code to {phone}: {e}", exc_info=True
+                            )
+                            continue
 
                     await asyncio.sleep(5)  # Wait before retry
 
@@ -66,6 +85,7 @@ class AccountManager:
     async def authorize_account(self, phone: str, code: str) -> bool:
         """Authorize account with received code"""
         try:
+            phone = self._normalize_phone(phone)
             account = await self.queries.get_account_by_phone(phone)
             if not account:
                 return False
@@ -138,6 +158,7 @@ class AccountManager:
     async def resend_code(self, phone: str) -> bool:
         """Resend authorization code for account"""
         try:
+            phone = self._normalize_phone(phone)
             account = await self.queries.get_account_by_phone(phone)
             if not account:
                 logger.error(f"Account {phone} not found")
