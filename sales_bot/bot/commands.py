@@ -1,33 +1,54 @@
 import logging
+from datetime import datetime
 
 from accounts.manager import AccountManager
 from accounts.monitoring import AccountMonitor
 from config import ADMIN_TELEGRAM_ID
-from db.models import Dialog, Message
-from db.queries import create_dialog, get_db
+from db.queries import DialogQueries, get_db
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message as PyrogramMessage
 from utils.export import export_all_dialogs, export_dialog
 
 from .client import app
 
+# Command response messages
+UNAUTHORIZED_MSG = "У вас нет прав для выполнения этой команды."
+ERROR_MSG = "Произошла ошибка при выполнении команды."
+INVALID_FORMAT_MSG = "Неверный формат команды."
+
+# Status emojis
+STATUS_EMOJIS = {"active": "🟢", "disabled": "🔴", "blocked": "⛔", "unknown": "❓"}
+
 logger = logging.getLogger(__name__)
 
 
-async def check_admin(message):
+async def check_admin(message: PyrogramMessage) -> bool:
     """Check admin rights"""
     if message.from_user.id != ADMIN_TELEGRAM_ID:
-        await message.reply_text("У вас нет прав для выполнения этой команды.")
+        await message.reply_text(UNAUTHORIZED_MSG)
+        logger.warning(
+            f"Unauthorized access attempt from user {message.from_user.id} "
+            f"at {datetime.now().isoformat(timespec='microseconds')}"
+        )
         return False
     return True
 
 
-@app.on_message(filters.command("start") & filters.private)
-async def start_command(client, message):
-    """Handler for /start @username command"""
-    if not await check_admin(message):
-        return
+def admin_only(func):
+    """Декоратор для проверки прав администратора"""
 
+    async def wrapper(client: Client, message: PyrogramMessage):
+        if not await check_admin(message):
+            return
+        return await func(client, message)
+
+    return wrapper
+
+
+@app.on_message(filters.command("start") & filters.private)
+@admin_only
+async def start_command(client: Client, message: PyrogramMessage):
+    """Handler for /start @username command"""
     try:
         args = message.text.split()
         if len(args) != 2 or not args[1].startswith("@"):
@@ -35,24 +56,28 @@ async def start_command(client, message):
             return
 
         username = args[1][1:]  # Remove @ from start
-        dialog_id = await create_dialog(username)
+        async with get_db() as session:
+            dialog_queries = DialogQueries(session)
+            dialog = await dialog_queries.create_dialog(username, message.from_user.id)
 
         await message.reply_text(
-            f"Диалог {dialog_id} с пользователем @{username} начат."
+            f"Диалог {dialog.id} с пользователем @{username} начат."
         )
-        logger.info(f"Started dialog {dialog_id} with @{username}")
+        logger.info(f"Started dialog {dialog.id} with @{username}")
 
     except Exception as e:
-        logger.error(f"Error in start_command: {e}", exc_info=True)
-        await message.reply_text("Произошла ошибка при создании диалога.")
+        logger.error(
+            f"Error in start_command: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply_text(ERROR_MSG)
 
 
 @app.on_message(filters.command("stop") & filters.private)
-async def stop_command(client, message):
+@admin_only
+async def stop_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /stop N"""
-    if not await check_admin(message):
-        return
-
     try:
         args = message.text.split()
         if len(args) != 2 or not args[1].isdigit():
@@ -60,35 +85,37 @@ async def stop_command(client, message):
             return
 
         dialog_id = int(args[1])
-        db = await get_db()
-        try:
-            dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
+        async with get_db() as session:
+            dialog_queries = DialogQueries(session)
+            dialog = await dialog_queries.get_dialog(dialog_id)
+
             if not dialog:
                 await message.reply_text(f"Диалог {dialog_id} не найден.")
                 return
 
             dialog.status = "stopped"
-            db.commit()
-            await message.reply_text(f"Диалог {dialog_id} остановлен.")
-            logger.info(f"Stopped dialog {dialog_id}")
-        finally:
-            db.close()
+            await session.commit()
+
+        await message.reply_text(f"Диалог {dialog_id} остановлен.")
+        logger.info(f"Stopped dialog {dialog_id}")
 
     except Exception as e:
-        logger.error(f"Error in stop_command: {e}", exc_info=True)
-        await message.reply_text("Произошла ошибка при остановке диалога.")
+        logger.error(
+            f"Error in stop_command: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply_text(ERROR_MSG)
 
 
 @app.on_message(filters.command("list") & filters.private)
-async def list_command(client, message):
+@admin_only
+async def list_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /list"""
-    if not await check_admin(message):
-        return
-
     try:
-        db = await get_db()
-        try:
-            dialogs = db.query(Dialog).filter(Dialog.status == "active").all()
+        async with get_db() as session:
+            dialog_queries = DialogQueries(session)
+            dialogs = await dialog_queries.get_active_dialogs()
 
             if not dialogs:
                 await message.reply_text("Нет активных диалогов.")
@@ -98,21 +125,21 @@ async def list_command(client, message):
             for dialog in dialogs:
                 response += f"ID: {dialog.id} - @{dialog.target_username}\n"
 
-            await message.reply_text(response)
-        finally:
-            db.close()
+        await message.reply_text(response)
 
     except Exception as e:
-        logger.error(f"Error in list_command: {e}", exc_info=True)
-        await message.reply_text("Произошла ошибка при получении списка диалогов.")
+        logger.error(
+            f"Error in list_command: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply_text(ERROR_MSG)
 
 
 @app.on_message(filters.command("view") & filters.private)
-async def view_command(client, message):
+@admin_only
+async def view_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /view N"""
-    if not await check_admin(message):
-        return
-
     try:
         args = message.text.split()
         if len(args) != 2 or not args[1].isdigit():
@@ -120,14 +147,9 @@ async def view_command(client, message):
             return
 
         dialog_id = int(args[1])
-        db = await get_db()
-        try:
-            messages = (
-                db.query(Message)
-                .filter(Message.dialog_id == dialog_id)
-                .order_by(Message.timestamp)
-                .all()
-            )
+        async with get_db() as session:
+            dialog_queries = DialogQueries(session)
+            messages = await dialog_queries.get_messages(dialog_id)
 
             if not messages:
                 await message.reply_text(
@@ -140,21 +162,21 @@ async def view_command(client, message):
                 direction = "→" if msg.direction == "out" else "←"
                 response += f"{direction} {msg.content}\n"
 
-            await message.reply_text(response)
-        finally:
-            db.close()
+        await message.reply_text(response)
 
     except Exception as e:
-        logger.error(f"Error in view_command: {e}", exc_info=True)
-        await message.reply_text("Произошла ошибка при просмотре диалога.")
+        logger.error(
+            f"Error in view_command: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply_text(ERROR_MSG)
 
 
 @app.on_message(filters.command("export") & filters.private)
-async def export_command(client, message):
+@admin_only
+async def export_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /export N"""
-    if not await check_admin(message):
-        return
-
     try:
         args = message.text.split()
         if len(args) != 2 or not args[1].isdigit():
@@ -171,16 +193,18 @@ async def export_command(client, message):
             await message.reply_text("Диалог не найден или пуст.")
 
     except Exception as e:
-        logger.error(f"Error in export_command: {e}", exc_info=True)
-        await message.reply_text("Произошла ошибка при экспорте диалога.")
+        logger.error(
+            f"Error in export_command: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply_text(ERROR_MSG)
 
 
 @app.on_message(filters.command("export_all") & filters.private)
-async def export_all_command(client, message):
+@admin_only
+async def export_all_command(client: Client, message: PyrogramMessage):
     """Обработчик команды /export_all"""
-    if not await check_admin(message):
-        return
-
     try:
         file_path = await export_all_dialogs()
 
@@ -191,16 +215,18 @@ async def export_all_command(client, message):
             await message.reply_text("Нет диалогов для экспорта.")
 
     except Exception as e:
-        logger.error(f"Error in export_all_command: {e}", exc_info=True)
-        await message.reply_text("Произошла ошибка при экспорте диалогов.")
+        logger.error(
+            f"Error in export_all_command: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply_text(ERROR_MSG)
 
 
 @app.on_message(filters.command("help") & filters.private)
-async def help_command(client, message):
+@admin_only
+async def help_command(client: Client, message: PyrogramMessage):
     """Handler for /help command"""
-    if not await check_admin(message):
-        return
-
     try:
         help_text = """
 Доступные команды:
@@ -215,6 +241,14 @@ async def help_command(client, message):
 /export N - выгрузка диалога номер N в файл
 /export_all - выгрузка всех диалогов
 
+Управление аккаунтами:
+/add_account phone - добавить новый аккаунт
+/authorize phone code - авторизовать аккаунт
+/list_accounts - показать список всех аккаунтов
+/disable_account phone - отключить аккаунт
+/check_account phone - проверить состояние аккаунта
+/check_all_accounts - проверить все аккаунты
+
 Помощь:
 /help - показать это сообщение
 """
@@ -222,24 +256,17 @@ async def help_command(client, message):
         logger.info("Help command executed")
 
     except Exception as e:
-        logger.error(f"Error in help_command: {e}", exc_info=True)
-        await message.reply_text("Произошла ошибка при выводе справки.")
+        logger.error(
+            f"Error in help_command: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply_text(ERROR_MSG)
 
 
-def admin_only(func):
-    """Декоратор для проверки прав администратора"""
-
-    async def wrapper(client: Client, message: Message):
-        if message.from_user.id != ADMIN_TELEGRAM_ID:
-            await message.reply("У вас нет прав для выполнения этой команды.")
-            return
-        return await func(client, message)
-
-    return wrapper
-
-
+@app.on_message(filters.command("add_account") & filters.private)
 @admin_only
-async def cmd_add_account(client: Client, message: Message):
+async def cmd_add_account(client: Client, message: PyrogramMessage):
     """Добавление нового аккаунта"""
     try:
         # Получаем номер телефона из команды
@@ -253,9 +280,8 @@ async def cmd_add_account(client: Client, message: Message):
         phone = args[1]
 
         # Создаем аккаунт
-        db = await get_db()
-        try:
-            account_manager = AccountManager(db)
+        async with get_db() as session:
+            account_manager = AccountManager(session)
             account = await account_manager.add_account(phone)
 
             if not account:
@@ -267,16 +293,18 @@ async def cmd_add_account(client: Client, message: Message):
                 f"/authorize {phone} код"
             )
 
-        finally:
-            db.close()
-
     except Exception as e:
-        logger.error(f"Error in cmd_add_account: {e}", exc_info=True)
-        await message.reply("Произошла ошибка при добавлении аккаунта.")
+        logger.error(
+            f"Error in cmd_add_account: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
 
 
+@app.on_message(filters.command("authorize") & filters.private)
 @admin_only
-async def cmd_authorize(client: Client, message: Message):
+async def cmd_authorize(client: Client, message: PyrogramMessage):
     """Авторизация аккаунта"""
     try:
         # Получаем номер телефона и код из команды
@@ -291,9 +319,8 @@ async def cmd_authorize(client: Client, message: Message):
         phone, code = args[1], args[2]
 
         # Авторизуем аккаунт
-        db = await get_db()
-        try:
-            account_manager = AccountManager(db)
+        async with get_db() as session:
+            account_manager = AccountManager(session)
             success = await account_manager.authorize_account(phone, code)
 
             if success:
@@ -303,21 +330,22 @@ async def cmd_authorize(client: Client, message: Message):
                     "Не удалось авторизовать аккаунт. Проверьте код и попробуйте снова."
                 )
 
-        finally:
-            db.close()
-
     except Exception as e:
-        logger.error(f"Error in cmd_authorize: {e}", exc_info=True)
-        await message.reply("Произошла ошибка при авторизации аккаунта.")
+        logger.error(
+            f"Error in cmd_authorize: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
 
 
+@app.on_message(filters.command("list_accounts") & filters.private)
 @admin_only
-async def cmd_list_accounts(client: Client, message: Message):
+async def cmd_list_accounts(client: Client, message: PyrogramMessage):
     """Список всех аккаунтов"""
     try:
-        db = await get_db()
-        try:
-            account_manager = AccountManager(db)
+        async with get_db() as session:
+            account_manager = AccountManager(session)
             accounts = await account_manager.queries.get_all_accounts()
 
             if not accounts:
@@ -326,9 +354,7 @@ async def cmd_list_accounts(client: Client, message: Message):
 
             response = "Список аккаунтов:\n\n"
             for acc in accounts:
-                status_emoji = {"active": "🟢", "disabled": "🔴", "blocked": "⛔"}.get(
-                    acc.status, "❓"
-                )
+                status_emoji = STATUS_EMOJIS.get(acc.status, STATUS_EMOJIS["unknown"])
 
                 response += (
                     f"{status_emoji} {acc.phone}\n"
@@ -339,16 +365,18 @@ async def cmd_list_accounts(client: Client, message: Message):
 
             await message.reply(response)
 
-        finally:
-            db.close()
-
     except Exception as e:
-        logger.error(f"Error in cmd_list_accounts: {e}", exc_info=True)
-        await message.reply("Произошла ошибка при получении списка аккаунтов.")
+        logger.error(
+            f"Error in cmd_list_accounts: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
 
 
+@app.on_message(filters.command("disable_account") & filters.private)
 @admin_only
-async def cmd_disable_account(client: Client, message: Message):
+async def cmd_disable_account(client: Client, message: PyrogramMessage):
     """Отключение аккаунта"""
     try:
         # Получаем номер телефона из команды
@@ -363,9 +391,8 @@ async def cmd_disable_account(client: Client, message: Message):
         phone = args[1]
 
         # Отключаем аккаунт
-        db = await get_db()
-        try:
-            account_manager = AccountManager(db)
+        async with get_db() as session:
+            account_manager = AccountManager(session)
             success = await account_manager.queries.update_account_status(
                 phone, "disabled"
             )
@@ -377,16 +404,18 @@ async def cmd_disable_account(client: Client, message: Message):
                     "Не удалось отключить аккаунт. Проверьте номер телефона."
                 )
 
-        finally:
-            db.close()
-
     except Exception as e:
-        logger.error(f"Error in cmd_disable_account: {e}", exc_info=True)
-        await message.reply("Произошла ошибка при отключении аккаунта.")
+        logger.error(
+            f"Error in cmd_disable_account: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
 
 
+@app.on_message(filters.command("check_account") & filters.private)
 @admin_only
-async def cmd_check_account(client: Client, message: Message):
+async def cmd_check_account(client: Client, message: PyrogramMessage):
     """Проверка состояния аккаунта"""
     try:
         args = message.text.split()
@@ -399,16 +428,15 @@ async def cmd_check_account(client: Client, message: Message):
 
         phone = args[1]
 
-        db = await get_db()
-        try:
-            account_manager = AccountManager(db)
+        async with get_db() as session:
+            account_manager = AccountManager(session)
             account = await account_manager.queries.get_account_by_phone(phone)
 
             if not account:
                 await message.reply("Аккаунт не найден.")
                 return
 
-            monitor = AccountMonitor(db)
+            monitor = AccountMonitor(session)
             is_working = await monitor.check_account(account)
 
             status_emoji = "✅" if is_working else "❌"
@@ -419,21 +447,22 @@ async def cmd_check_account(client: Client, message: Message):
                 f"Последнее использование: {account.last_used or 'никогда'}"
             )
 
-        finally:
-            db.close()
-
     except Exception as e:
-        logger.error(f"Error in cmd_check_account: {e}", exc_info=True)
-        await message.reply("Произошла ошибка при проверке аккаунта.")
+        logger.error(
+            f"Error in cmd_check_account: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
 
 
+@app.on_message(filters.command("check_all_accounts") & filters.private)
 @admin_only
-async def cmd_check_all_accounts(client: Client, message: Message):
+async def cmd_check_all_accounts(client: Client, message: PyrogramMessage):
     """Проверка всех аккаунтов"""
     try:
-        db = await get_db()
-        try:
-            monitor = AccountMonitor(db)
+        async with get_db() as session:
+            monitor = AccountMonitor(session)
             stats = await monitor.check_all_accounts()
 
             await message.reply(
@@ -444,19 +473,10 @@ async def cmd_check_all_accounts(client: Client, message: Message):
                 f"⛔ Заблокировано: {stats['blocked']}"
             )
 
-        finally:
-            db.close()
-
     except Exception as e:
-        logger.error(f"Error in cmd_check_all_accounts: {e}", exc_info=True)
-        await message.reply("Произошла ошибка при проверке аккаунтов.")
-
-
-# Регистрация обработчиков команд
-def register_account_commands(app: Client):
-    app.add_handler(filters.command("add_account"), cmd_add_account)
-    app.add_handler(filters.command("authorize"), cmd_authorize)
-    app.add_handler(filters.command("list_accounts"), cmd_list_accounts)
-    app.add_handler(filters.command("disable_account"), cmd_disable_account)
-    app.add_handler(filters.command("check_account"), cmd_check_account)
-    app.add_handler(filters.command("check_all"), cmd_check_all_accounts)
+        logger.error(
+            f"Error in cmd_check_all_accounts: {e}",
+            exc_info=True,
+            extra={"user_id": message.from_user.id, "command": message.text},
+        )
+        await message.reply(ERROR_MSG)
