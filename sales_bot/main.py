@@ -32,13 +32,6 @@ COMMANDS = [
 async def register_commands(app):
     """Register bot commands in Telegram"""
     try:
-        # First ensure we're connected
-        if not app.is_connected:
-            await app.start()
-
-        # Clear existing commands
-        await app.set_bot_commands([])
-
         # Register new commands
         await app.set_bot_commands(
             [BotCommand(command, description) for command, description in COMMANDS]
@@ -55,10 +48,8 @@ async def main():
         setup_logging()
         logger.info("Starting bot application...")
 
-        # Start the bot first
-        if not app.is_connected:
-            await app.start()
-            logger.info("Bot started successfully")
+        await app.start()
+        logger.info("Bot started successfully")
 
         # Register commands
         await register_commands(app)
