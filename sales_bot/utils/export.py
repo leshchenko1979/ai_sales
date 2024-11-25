@@ -2,8 +2,8 @@ import logging
 import os
 from datetime import datetime
 
-from db.models import Dialog, Message
-from db.queries import get_db
+from db.models import Message
+from db.queries import DialogQueries, get_db
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +21,14 @@ async def export_dialog(dialog_id: int) -> str:
     try:
         ensure_export_dir()
 
-        db = await get_db()
-        try:
-            dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
+        async with get_db() as session:
+            queries = DialogQueries(session)
+            dialog = await queries.get_dialog_by_id(dialog_id)
             if not dialog:
                 return None
 
             messages = (
-                db.query(Message)
+                session.query(Message)
                 .filter(Message.dialog_id == dialog_id)
                 .order_by(Message.timestamp)
                 .all()
@@ -50,8 +50,6 @@ async def export_dialog(dialog_id: int) -> str:
                     f.write(f"[{msg.timestamp}] {direction} {msg.content}\n")
 
             return file_path
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error(f"Error exporting dialog {dialog_id}: {e}", exc_info=True)
@@ -63,9 +61,9 @@ async def export_all_dialogs() -> str:
     try:
         ensure_export_dir()
 
-        db = await get_db()
-        try:
-            dialogs = db.query(Dialog).all()
+        async with get_db() as session:
+            queries = DialogQueries(session)
+            dialogs = await queries.get_all_dialogs()
             if not dialogs:
                 return None
 
@@ -79,7 +77,7 @@ async def export_all_dialogs() -> str:
                     f.write(f"Создан: {dialog.created_at}\n\n")
 
                     messages = (
-                        db.query(Message)
+                        session.query(Message)
                         .filter(Message.dialog_id == dialog.id)
                         .order_by(Message.timestamp)
                         .all()
@@ -92,8 +90,6 @@ async def export_all_dialogs() -> str:
                     f.write("\n" + "=" * 50 + "\n")
 
             return file_path
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error(f"Error exporting all dialogs: {e}", exc_info=True)

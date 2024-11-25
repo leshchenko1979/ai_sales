@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import List, Optional
 
 from config import DATABASE_URL
@@ -111,6 +112,68 @@ class AccountQueries:
         except Exception as e:
             await self.session.rollback()
             logger.error(f"Error updating account status: {e}", exc_info=True)
+            raise
+
+    async def create_account(self, phone: str) -> Optional[Account]:
+        """Create new account"""
+        try:
+            account = Account(
+                phone=phone, status=AccountStatus.ACTIVE, daily_messages=0
+            )
+            self.session.add(account)
+            await self.session.commit()
+            await self.session.refresh(account)
+            return account
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(f"Error creating account: {e}", exc_info=True)
+            raise
+
+    async def update_session(self, account_id: int, session_string: str) -> bool:
+        """Update account session string"""
+        try:
+            result = await self.session.execute(
+                update(Account)
+                .where(Account.id == account_id)
+                .values(session_string=session_string)
+            )
+            await self.session.commit()
+            return result.rowcount > 0
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(f"Error updating session: {e}", exc_info=True)
+            raise
+
+    async def increment_messages(self, account_id: int) -> bool:
+        """Increment daily message counter"""
+        try:
+            result = await self.session.execute(
+                update(Account)
+                .where(Account.id == account_id)
+                .values(
+                    daily_messages=Account.daily_messages + 1, last_used=datetime.now()
+                )
+            )
+            await self.session.commit()
+            return result.rowcount > 0
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(f"Error incrementing messages: {e}", exc_info=True)
+            raise
+
+    async def update_account_warmup_time(self, account_id: int) -> bool:
+        """Update account warmup timestamp"""
+        try:
+            result = await self.session.execute(
+                update(Account)
+                .where(Account.id == account_id)
+                .values(last_warmup=datetime.now())
+            )
+            await self.session.commit()
+            return result.rowcount > 0
+        except Exception as e:
+            await self.session.rollback()
+            logger.error(f"Error updating warmup time: {e}", exc_info=True)
             raise
 
 

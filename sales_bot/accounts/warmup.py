@@ -34,17 +34,18 @@ class AccountWarmup:
                 return False
 
             try:
-                async with get_db():
-                    # Выполняем случайные действия прогрева
-                    actions = random.sample(self._warmup_actions, k=2)
-                    for action in actions:
-                        if not await action(client):
-                            return False
-                        # Делаем паузу между действиями
-                        await asyncio.sleep(random.randint(30, 120))
+                # Выполняем случайные действия прогрева
+                actions = random.sample(self._warmup_actions, k=2)
+                for action in actions:
+                    if not await action(client):
+                        return False
+                    # Делаем паузу между действиями
+                    await asyncio.sleep(random.randint(30, 120))
 
-                    # Обновляем статус аккаунта
-                    await self.queries.update_account_warmup_time(account.id)
+                # Обновляем статус аккаунта
+                async with get_db() as session:
+                    queries = AccountQueries(session)
+                    await queries.update_account_warmup_time(account.id)
                 return True
 
             finally:
@@ -61,22 +62,23 @@ class AccountWarmup:
         stats = {"total": 0, "success": 0, "failed": 0}
 
         try:
-            async with get_db():
-                accounts = await self.queries.get_accounts_for_warmup()
-                stats["total"] = len(accounts)
+            async with get_db() as session:
+                queries = AccountQueries(session)
+                accounts = await queries.get_accounts_for_warmup()
+            stats["total"] = len(accounts)
 
-                for account in accounts:
-                    try:
-                        if await self.warmup_account(account):
-                            stats["success"] += 1
-                        else:
-                            stats["failed"] += 1
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to warmup account {account.phone}: {e}",
-                            exc_info=True,
-                        )
+            for account in accounts:
+                try:
+                    if await self.warmup_account(account):
+                        stats["success"] += 1
+                    else:
                         stats["failed"] += 1
+                except Exception as e:
+                    logger.error(
+                        f"Failed to warmup account {account.phone}: {e}",
+                        exc_info=True,
+                    )
+                    stats["failed"] += 1
 
             await self._notify_warmup_results(stats)
             return stats
