@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import List
 
 from db.models import Account, AccountStatus
-from db.queries import AccountQueries
+from db.queries import AccountQueries, get_db
 
 from .monitoring import AccountMonitor
 from .notifications import AccountNotifier
@@ -49,9 +49,10 @@ class AccountRotator:
     async def _enable_rested_accounts(self) -> List[Account]:
         """Включает аккаунты, которые достаточно отдохнули"""
         # Получаем отключенные аккаунты
-        disabled_accounts = await self.queries.get_accounts_by_status(
-            AccountStatus.DISABLED
-        )
+        async with get_db():
+            disabled_accounts = await self.queries.get_accounts_by_status(
+                AccountStatus.DISABLED
+            )
         enabled_accounts = []
 
         for account in disabled_accounts:

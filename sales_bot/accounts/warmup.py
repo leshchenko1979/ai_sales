@@ -60,7 +60,7 @@ class AccountWarmup:
         stats = {"total": 0, "success": 0, "failed": 0}
 
         try:
-            async with get_db() as session:
+            async with get_db():
                 accounts = await self.queries.get_accounts_for_warmup()
                 stats["total"] = len(accounts)
 
