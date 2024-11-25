@@ -16,19 +16,24 @@ class EnumType(TypeDecorator):
     impl = SQLEnum
     cache_ok = True
 
+    def __init__(self, enum_class, **kw):
+        # Store enum class for later use
+        self.enum_class = enum_class
+        super().__init__(enum_class, **kw)
+
     def process_bind_param(self, value: Any, dialect: Any) -> str | None:
         """Convert enum to string when saving to DB"""
         if value is None:
             return None
         if isinstance(value, str):
-            value = self.impl.enums.from_string(value)
+            value = self.enum_class.from_string(value)
         return str(value) if value else None
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
         """Convert string from DB to enum"""
         if value is None:
             return None
-        return self.impl.enums.from_string(value)
+        return self.enum_class.from_string(value)
 
 
 class StrEnum(str, Enum):
