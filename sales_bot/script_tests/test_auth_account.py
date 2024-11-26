@@ -54,14 +54,10 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
         from core.accounts.manager import AccountManager
         from core.accounts.models import AccountStatus
         from core.accounts.monitoring import AccountMonitor
-        from core.db import get_db
         from infrastructure.logging import setup_logging
 
         # Initialize logging
         setup_logging()
-
-        # Initialize database
-        await get_db()
 
         # Initialize managers
         manager = AccountManager()

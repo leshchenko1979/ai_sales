@@ -4,3 +4,4 @@
 __pycache__
 venv
 sales_bot.session
+sales_bot/logs/sales_bot.log

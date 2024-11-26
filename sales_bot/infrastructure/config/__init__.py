@@ -19,12 +19,10 @@ APP_NAME: Final[str] = "AI Sales Bot"
 APP_URL: Final[str] = os.getenv("APP_URL", "https://ai-sales-bot.example.com")
 
 # Database
-DATABASE_URL: Final[str] = os.getenv(
-    "DATABASE_URL", f"sqlite+aiosqlite:///{DATA_DIR}/sales_bot.db"
-)
+DATABASE_URL: Final[str] = os.getenv("DATABASE_URL")
 
 # OpenRouter API
-OPENROUTER_API_KEY: Final[str] = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_API_KEY: Final[str] = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_MODEL: Final[str] = os.getenv("OPENROUTER_MODEL", "openai/gpt-3.5-turbo")
 
 # Telegram
