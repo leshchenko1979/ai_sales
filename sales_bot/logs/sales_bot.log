@@ -1,0 +1,30 @@
+2024-11-26 03:43:32,766 - root - INFO - Logging system initialized
+2024-11-26 03:43:32,774 - test_auth_account - ERROR - ❌ Test failed: object _AsyncGeneratorContextManager can't be used in 'await' expression
+Traceback (most recent call last):
+  File "C:\Users\leshc\python_projects\ai_sales\script_tests\test_auth_account.py", line 64, in test_account_flow
+    await get_db()
+TypeError: object _AsyncGeneratorContextManager can't be used in 'await' expression
+2024-11-26 03:51:16,012 - root - INFO - Logging system initialized
+2024-11-26 03:51:16,012 - test_auth_account - ERROR - ❌ Test failed: object _AsyncGeneratorContextManager can't be used in 'await' expression
+Traceback (most recent call last):
+  File "C:\Users\leshc\python_projects\ai_sales\script_tests\test_auth_account.py", line 64, in test_account_flow
+    await get_db()
+TypeError: object _AsyncGeneratorContextManager can't be used in 'await' expression
+2024-11-26 03:51:52,510 - root - INFO - Logging system initialized
+2024-11-26 03:51:52,511 - test_auth_account - ERROR - ❌ Test failed: object _AsyncGeneratorContextManager can't be used in 'await' expression
+Traceback (most recent call last):
+  File "C:\Users\leshc\python_projects\ai_sales\script_tests\test_auth_account.py", line 64, in test_account_flow
+    await get_db()
+TypeError: object _AsyncGeneratorContextManager can't be used in 'await' expression
+2024-11-26 03:53:26,930 - root - INFO - Logging system initialized
+2024-11-26 03:53:26,931 - test_auth_account - ERROR - ❌ Test failed: object _AsyncGeneratorContextManager can't be used in 'await' expression
+Traceback (most recent call last):
+  File "C:\Users\leshc\python_projects\ai_sales\script_tests\test_auth_account.py", line 64, in test_account_flow
+    await get_db()
+TypeError: object _AsyncGeneratorContextManager can't be used in 'await' expression
+2024-11-26 03:54:00,827 - root - INFO - Logging system initialized
+2024-11-26 03:54:00,827 - test_auth_account - ERROR - ❌ Test failed: object _AsyncGeneratorContextManager can't be used in 'await' expression
+Traceback (most recent call last):
+  File "C:\Users\leshc\python_projects\ai_sales\script_tests\test_auth_account.py", line 64, in test_account_flow
+    await get_db()
+TypeError: object _AsyncGeneratorContextManager can't be used in 'await' expression

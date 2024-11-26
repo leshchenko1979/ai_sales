@@ -1,92 +1,79 @@
+"""Main application entry point."""
+
+import asyncio
 import logging
 
-from bot.client import app
+from core.scheduler import Scheduler
+from core.telegram import app
+from infrastructure.logging import setup_logging
 
-# Import commands after client is defined
-from bot.commands import *  # noqa: F403 F401
-from db.queries import engine
-from pyrogram import idle
-from pyrogram.types import BotCommand
-from scheduler import AccountScheduler
-from utils.logging import setup_logging
-
+# Configure logging
+setup_logging()
 logger = logging.getLogger(__name__)
-
-COMMANDS = [
-    # Диалоги
-    ("start", "Начать диалог с пользователем"),
-    ("stop", "Остановить диалог"),
-    ("list", "Показать активные диалоги"),
-    ("view", "Просмотреть диалог"),
-    ("export", "Выгрузить диалог"),
-    ("export_all", "Выгрузить все диалоги"),
-    # Управление аккаунтами
-    ("add_account", "Добавить новый аккаунт"),
-    ("authorize", "Авторизовать аккаунт"),
-    ("resend_code", "Повторно отправить код авторизации"),
-    ("list_accounts", "Список всех аккаунтов"),
-    ("disable_account", "Отключить аккаунт"),
-    ("check_account", "Проверить состояние аккаунта"),
-    ("check_all_accounts", "Проверить все аккаунты"),
-    # Помощь
-    ("help", "Показать справку по командам"),
-]
-
-
-async def register_commands(app):
-    """Register bot commands in Telegram"""
-    try:
-        # Register new commands
-        await app.set_bot_commands(
-            [BotCommand(command, description) for command, description in COMMANDS]
-        )
-        logger.info("Bot commands registered successfully")
-    except Exception as e:
-        logger.error(f"Failed to register bot commands: {e}", exc_info=True)
-        raise
 
 
 async def main():
-    """Main application entry point"""
+    """Main application entry point."""
     try:
-        setup_logging()
-        logger.info("Starting bot application...")
+        # Start scheduler
+        scheduler = Scheduler()
+        await scheduler.start()
+        logger.info("Scheduler started successfully")
 
-        async with app:
-            logger.info("Bot started successfully")
+        # Start bot
+        await app.start()
 
-            # Register commands
-            await register_commands(app)
+        # Log available commands
+        commands_info = """
+        Бот запущен. Доступные команды администратора:
 
-            # Start scheduler
-            scheduler = AccountScheduler()
-            await scheduler.start()
-            logger.info("Scheduler started successfully")
+        Управление аккаунтами:
+        /account_add (или /addacc) - Добавить аккаунт
+        /account_auth (или /auth) - Авторизовать
+        /account_list (или /accounts) - Список аккаунтов
+        /account_check (или /check) - Проверить статус
+        /account_checkall (или /checkall) - Проверить все
+        /account_resend (или /resend) - Повторный код
 
-            # Log ready state
-            logger.info("Bot is ready to handle commands")
+        Управление диалогами:
+        /dialog_start (или /start_chat) - Начать диалог
+        /dialog_export (или /export) - Экспорт диалога
+        /dialog_exportall (или /exportall) - Экспорт всех
 
-            # Wait for bot
-            await idle()
+        /help - Справка по командам
+
+        ID администратора: {ADMIN_TELEGRAM_ID}
+        """
+        logger.info(commands_info)
+        logger.info("Bot started successfully")
+
+        # Wait for stop signal
+        await app.idle()
 
     except Exception as e:
-        logger.error(f"Error in main: {e}", exc_info=True)
+        logger.error(f"Critical error in main: {e}", exc_info=True)
         raise
 
     finally:
+        # Stop services
         try:
-            if "scheduler" in locals():
-                await scheduler.stop()
-            # Close database connection pool
-            await engine.dispose()
+            await scheduler.stop()
+            logger.info("Scheduler stopped successfully")
         except Exception as e:
-            logger.error(f"Error during cleanup: {e}", exc_info=True)
+            logger.error(f"Error stopping scheduler: {e}", exc_info=True)
+
+        try:
+            await app.stop()
+            logger.info("Bot stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping bot: {e}", exc_info=True)
 
 
 if __name__ == "__main__":
+    # Run main
     try:
-        app.run(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+        logger.info("Bot shutdown requested by user")
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
+        logger.critical(f"Unexpected error: {e}", exc_info=True)

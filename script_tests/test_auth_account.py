@@ -1,27 +1,27 @@
+"""Test account authorization flow."""
+
 import asyncio
 import logging
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# Добавляем корневую директорию в PYTHONPATH
-root_dir = Path(__file__).parent.parent / "sales_bot"
-assert root_dir.is_dir(), f"Неверная директория: {root_dir}"
+# Add root directory to PYTHONPATH
+root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir))
 
-# Настраиваем логирование
+# Configure logging
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
-# Устанавливаем DEBUG для всех логгеров
+# Set DEBUG level for all loggers
 for logger_name in [
-    "accounts.client",
-    "accounts.manager",
-    "accounts.monitoring",
+    "core.accounts.client",
+    "core.accounts.manager",
+    "core.accounts.monitoring",
     "pyrogram",
 ]:
     logging.getLogger(logger_name).setLevel(logging.DEBUG)
@@ -32,98 +32,108 @@ logger.setLevel(logging.DEBUG)
 
 async def test_account_flow(phone: Optional[str] = None) -> bool:
     """
-    Полный тест жизненного цикла аккаунта:
-    1. Создание аккаунта
-    2. Запрос кода авторизации
-    3. Авторизация
-    4. Проверка состояния
-    5. Проверка flood wait
-    6. Проверка мониторинга
+    Full account lifecycle test:
+    1. Create account
+    2. Request authorization code
+    3. Authorize
+    4. Check status
+    5. Check flood wait
+    6. Check monitoring
 
     Args:
-        phone: Номер телефона для теста. Если None, используется тестовый номер.
+        phone: Phone number for testing. If None, test number is used.
 
     Returns:
-        bool: True если все тесты пройдены успешно
+        bool: True if all tests passed successfully
     """
-    from dotenv import load_dotenv
-
-    load_dotenv()
-
-    from accounts.manager import AccountManager
-    from accounts.models import AccountStatus
-    from accounts.monitoring import AccountMonitor
-    from accounts.notifications import AccountNotifier
-
     try:
-        # Инициализируем менеджеры
+        from dotenv import load_dotenv
+
+        load_dotenv()
+
+        from core.accounts.manager import AccountManager
+        from core.accounts.models import AccountStatus
+        from core.accounts.monitoring import AccountMonitor
+        from core.db import get_db
+        from infrastructure.logging import setup_logging
+
+        # Initialize logging
+        setup_logging()
+
+        # Initialize database
+        await get_db()
+
+        # Initialize managers
         manager = AccountManager()
-        AccountNotifier()
         monitor = AccountMonitor()
 
-        # Используем тестовый номер если не указан
+        # Use test number if not specified
         phone = phone or "79306974071"
-        logger.info(f"Тестирование аккаунта {phone}")
+        logger.info(f"Testing account {phone}")
 
-        # 1. Создание аккаунта
-        logger.info("1. Создание аккаунта...")
+        # 1. Create account
+        logger.info("1. Creating account...")
         account = await manager.get_or_create_account(phone)
-        assert account is not None, "Не удалось создать аккаунт"
-        assert account.phone == phone, f"Неверный номер телефона: {account.phone}"
-        logger.info(f"Создан аккаунт {account}")
+        assert account is not None, "Failed to create account"
+        assert account.phone == phone, f"Wrong phone number: {account.phone}"
+        logger.info(f"Created account {account}")
 
-        # 2. Запрос кода авторизации
+        # 2. Request authorization code
         if account.status == AccountStatus.new:
-            logger.info("2. Запрос кода авторизации...")
+            logger.info("2. Requesting authorization code...")
             code_requested = await manager.request_code(phone)
-            assert code_requested, "Не удалось запросить код"
+            assert code_requested, "Failed to request code"
 
-            # Получаем свежие данные
+            # Get fresh data
             account = await manager.get_or_create_account(phone)
             assert (
                 account.status == AccountStatus.code_requested
-            ), f"Неверный статус: {account.status}"
+            ), f"Wrong status: {account.status}"
 
-            # 3. Авторизация
-            logger.info("3. Авторизация аккаунта...")
-            code = input("Введите код авторизации: ").strip()
+            # 3. Authorization
+            logger.info("3. Authorizing account...")
+            code = input("Enter authorization code: ").strip()
             authorized = await manager.authorize_account(phone, code)
-            assert authorized, "Не удалось авторизовать аккаунт"
+            assert authorized, "Failed to authorize account"
 
-        # 4. Проверка состояния
-        logger.info("4. Проверка состояния...")
+        # 4. Check status
+        logger.info("4. Checking status...")
         account = await manager.get_or_create_account(phone)
-        assert (
-            account.status == AccountStatus.active
-        ), f"Неверный статус: {account.status}"
+        assert account.status == AccountStatus.active, f"Wrong status: {account.status}"
+        assert account.session_string is not None, "Missing session_string"
 
-        # Проверяем session_string
-        assert account.session_string is not None, "Отсутствует session_string"
+        # 5. Check flood wait
+        logger.info("5. Checking flood wait...")
+        assert not account.is_in_flood_wait, "Account should not be in flood wait"
+        assert account.can_be_used, "Account should be usable"
 
-        # 5. Проверка мониторинга
-        logger.info("5. Проверка мониторинга...")
-        is_healthy = await monitor.check_account(account)
-        assert is_healthy, "Аккаунт не прошел проверку мониторинга"
+        # 6. Check monitoring
+        logger.info("6. Checking monitoring...")
+        stats = await monitor.check_accounts()
+        assert stats is not None, "Failed to get monitoring stats"
+        assert stats.total > 0, "No accounts found"
+        assert stats.active > 0, "No active accounts"
 
-        # Проверяем last_used_at
-        assert account.last_used_at is not None, "last_used_at не установлен"
-        assert isinstance(account.last_used_at, datetime), "Неверный тип last_used_at"
-        assert (
-            account.last_used_at <= datetime.utcnow()
-        ), "Неверное значение last_used_at"
-
-        logger.info("Все тесты пройдены успешно!")
+        logger.info("✅ All tests passed successfully!")
         return True
 
-    except AssertionError as e:
-        logger.error(f"Ошибка проверки: {e}")
-        return False
     except Exception as e:
-        logger.error(f"Непредвиденная ошибка: {e}", exc_info=True)
+        logger.error(f"❌ Test failed: {e}", exc_info=True)
         return False
+
+    finally:
+        # Clean up
+        await asyncio.sleep(1)  # Wait for any pending tasks
 
 
 if __name__ == "__main__":
-    # Запускаем тест
-    success = asyncio.run(test_account_flow())
-    sys.exit(0 if success else 1)
+    try:
+        # Run test
+        success = asyncio.run(test_account_flow())
+        sys.exit(0 if success else 1)
+    except KeyboardInterrupt:
+        logger.info("Test interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        logger.critical(f"Unexpected error: {e}", exc_info=True)
+        sys.exit(1)

@@ -1,8 +1,10 @@
+"""Account rotation module."""
+
 import logging
 from typing import List
 
-from db.models import AccountStatus
-from db.queries import AccountQueries, with_queries
+from core.accounts.models import AccountStatus
+from core.db import AccountQueries, with_queries
 
 from .client import AccountClient
 from .models import Account

@@ -1,8 +1,10 @@
+"""Account warmup module."""
+
 import asyncio
 import logging
 import random
 
-from db.queries import AccountQueries, with_queries
+from core.db import AccountQueries, with_queries
 from pyrogram.errors import FloodWait
 
 from .client import AccountClient
