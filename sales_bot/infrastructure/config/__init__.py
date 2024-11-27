@@ -23,7 +23,7 @@ DATABASE_URL: Final[str] = os.getenv("DATABASE_URL")
 
 # OpenRouter API
 OPENROUTER_API_KEY: Final[str] = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL: Final[str] = os.getenv("OPENROUTER_MODEL", "openai/gpt-3.5-turbo")
+OPENROUTER_MODEL: Final[str] = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
 # Telegram
 API_ID: Final[int] = int(os.getenv("API_ID", "0"))
