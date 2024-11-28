@@ -16,3 +16,5 @@ class DialogStatus(str, Enum):
     active = "active"
     closed = "closed"
     blocked = "blocked"
+    rejected = "rejected"
+    not_qualified = "not_qualified"

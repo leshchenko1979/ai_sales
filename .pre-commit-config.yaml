@@ -3,14 +3,19 @@ repos:
     rev: v4.5.0
     hooks:
     -   id: trailing-whitespace
+        stages: [pre-commit]
     -   id: end-of-file-fixer
+        stages: [pre-commit]
     -   id: check-yaml
+        stages: [pre-commit]
     -   id: check-added-large-files
+        stages: [pre-commit]
 
 -   repo: https://github.com/PyCQA/autoflake
     rev: v2.2.1
     hooks:
     -   id: autoflake
+        stages: [pre-commit]
         args: [
             --remove-all-unused-imports,
             --in-place,
@@ -21,13 +26,16 @@ repos:
     rev: 24.2.0
     hooks:
     -   id: black
+        stages: [pre-commit]
 
 -   repo: https://github.com/pycqa/isort
     rev: 5.13.2
     hooks:
     -   id: isort
+        stages: [pre-commit]
 
 -   repo: https://github.com/pycqa/flake8
     rev: 7.0.0
     hooks:
     -   id: flake8
+        stages: [pre-commit]

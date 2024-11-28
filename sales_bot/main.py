@@ -2,6 +2,7 @@
 
 import logging
 
+from api import handlers  # noqa: F401
 from core.scheduler import Scheduler
 from core.telegram import app
 from infrastructure.config import ADMIN_TELEGRAM_ID, SCHEDULER_ON

@@ -1,7 +1,7 @@
 """Testing command handlers."""
 
 import logging
-from typing import Dict
+from typing import Dict, List
 
 from core.messaging.conductor import DialogConductor
 from core.telegram.client import app
@@ -12,6 +12,25 @@ logger = logging.getLogger(__name__)
 
 # Store active test dialogs
 test_dialogs: Dict[int, DialogConductor] = {}
+# Store dialog messages for analysis
+dialog_messages: Dict[int, List[Message]] = {}
+# Testing group username
+TESTING_GROUP = "@sales_bot_analysis"
+
+
+async def send_completion_message(
+    message: Message, thread_link: str, stopped: bool = False
+):
+    """Send completion message with thread link and feedback instructions."""
+    action = "остановлен" if stopped else "завершен"
+    await message.reply(
+        f"Диалог {action} и переслан в группу анализа.\n"
+        f"Вот ссылка на тред: {thread_link}\n\n"
+        "Пожалуйста, оцените сообщения бота:\n"
+        "- Поставьте реакции 👍/👎\n"
+        "- Ответьте на сообщение с комментарием\n"
+        "- Запишите общее впечатление (можно голосовым)"
+    )
 
 
 @app.on_message(filters.command("test_dialog"))
@@ -29,10 +48,13 @@ async def cmd_test_dialog(client: Client, message: Message):
     try:
         # Create conductor for test dialog
         async def send_message(text: str) -> None:
-            await message.reply(text)
+            sent_msg = await message.reply(text)
+            if user_id in dialog_messages:
+                dialog_messages[user_id].append(sent_msg)
 
         conductor = DialogConductor(send_func=send_message)
         test_dialogs[user_id] = conductor
+        dialog_messages[user_id] = [message]  # Store initial message
 
         # Start dialog
         await conductor.start_dialog()
@@ -43,6 +65,35 @@ async def cmd_test_dialog(client: Client, message: Message):
         await message.reply("⚠️ Не удалось запустить тестовый диалог. Попробуйте позже.")
         if user_id in test_dialogs:
             del test_dialogs[user_id]
+        if user_id in dialog_messages:
+            del dialog_messages[user_id]
+
+
+@app.on_message(filters.command("stop") & filters.private)
+async def cmd_stop_dialog(client: Client, message: Message):
+    """Stop active test dialog."""
+    user_id = message.from_user.id
+
+    if user_id not in test_dialogs:
+        await message.reply("У вас нет активного тестового диалога.")
+        return
+
+    try:
+        # Forward dialog to testing group
+        thread_link = await forward_dialog_for_analysis(client, user_id)
+        # Remove dialog
+        del test_dialogs[user_id]
+        del dialog_messages[user_id]
+        # Send completion message
+        await send_completion_message(message, thread_link, stopped=True)
+
+    except Exception as e:
+        logger.error(f"Error stopping test dialog: {e}", exc_info=True)
+        if user_id in test_dialogs:
+            del test_dialogs[user_id]
+        if user_id in dialog_messages:
+            del dialog_messages[user_id]
+        await message.reply("⚠️ Произошла ошибка при остановке диалога.")
 
 
 @app.on_message(~filters.command("test_dialog") & filters.private)
@@ -60,28 +111,121 @@ async def on_test_message(client: Client, message: Message):
         return
 
     try:
+        # Store user message
+        if user_id in dialog_messages:
+            dialog_messages[user_id].append(message)
+            logger.info(
+                f"Stored message for user {user_id}, total messages: {len(dialog_messages[user_id])}"
+            )
+
         # Handle incoming message
         conductor = test_dialogs[user_id]
+        logger.info(f"Handling message from user {user_id}")
         is_completed, error = await conductor.handle_message(message.text)
+        logger.info(f"Message handled, is_completed: {is_completed}, error: {error}")
 
         if is_completed:
+            logger.info(
+                f"Dialog completed for user {user_id}, forwarding to analysis group"
+            )
+            # Forward dialog to testing group
+            thread_link = await forward_dialog_for_analysis(client, user_id)
+            logger.info(f"Got thread link: {thread_link}")
             # Remove dialog first to prevent race conditions
             del test_dialogs[user_id]
-            await message.reply(
-                "🏁 Тестовый диалог завершен! Спасибо за участие.\n\nЧтобы начать новый диалог, используйте команду /test_dialog"
-            )
+            del dialog_messages[user_id]
+            logger.info(f"Removed dialog data for user {user_id}")
+            # Send completion message
+            await send_completion_message(message, thread_link)
+            logger.info(f"Sent completion message to user {user_id}")
         elif error:
             # Only show error if dialog wasn't completed normally
+            logger.warning(f"Error in dialog for user {user_id}: {error}")
             if user_id in test_dialogs:
                 del test_dialogs[user_id]
-                await message.reply(
-                    f"⚠️ Произошла ошибка при обработке сообщения: {error}\nДиалог завершен."
-                )
+            if user_id in dialog_messages:
+                del dialog_messages[user_id]
+            await message.reply(
+                f"⚠️ Произошла ошибка при обработке сообщения: {error}\nДиалог завершен."
+            )
 
     except Exception as e:
         logger.error(f"Error handling test message: {e}", exc_info=True)
         if user_id in test_dialogs:
             del test_dialogs[user_id]
-            await message.reply(
-                "⚠️ Произошла ошибка при обработке сообщения. Диалог завершен."
-            )
+        if user_id in dialog_messages:
+            del dialog_messages[user_id]
+        await message.reply(
+            "⚠️ Произошла ошибка при обработке сообщения. Диалог завершен."
+        )
+
+
+async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
+    """Forward dialog to testing group for analysis.
+
+    Returns:
+        str: Link to the thread message
+    """
+    try:
+        if user_id not in dialog_messages:
+            logger.error(f"No messages found for user {user_id}")
+            return ""
+
+        messages = dialog_messages[user_id]
+        if not messages:
+            logger.error("Empty messages list")
+            return ""
+
+        logger.info(f"Forwarding {len(messages)} messages for user {user_id}")
+
+        # Get group info
+        group = await client.get_chat(TESTING_GROUP)
+        if not group or not group.id:
+            logger.error("Failed to get testing group info")
+            return ""
+
+        logger.info(f"Got testing group: {group.id}")
+
+        # Create thread with metadata
+        thread_msg = await client.send_message(
+            group.id,
+            f"📊 Информация о диалоге:\n"
+            f"- Продавец: {messages[0].from_user.first_name}\n"
+            f"- Дата: {messages[0].date.strftime('%Y-%m-%d')}\n"
+            f"- Итог: #тест\n\n"
+            f"💬 Диалог ниже.\n"
+            f"Вы можете:\n"
+            f"- Ответьте на конкретное сообщение с комментарием\n"
+            f"- Поставьте реакцию на сообщение бота\n"
+            f"- Запишите общее впечатление (можно голосовым)",
+        )
+
+        logger.info(f"Created thread message: {thread_msg}")
+        logger.info(f"Thread message type: {type(thread_msg)}")
+        logger.info(f"Thread message dir: {dir(thread_msg)}")
+
+        # Forward all messages in thread
+        for i, msg in enumerate(messages):
+            try:
+                # First forward message
+                forwarded = await msg.forward(chat_id=group.id)
+                # Then reply to thread
+                if forwarded:
+                    await forwarded.reply(
+                        ".",  # Empty reply to create thread
+                        message_thread_id=thread_msg.id,
+                        quote=True,
+                    )
+                logger.info(f"Forwarded message {i + 1}/{len(messages)}")
+            except Exception as e:
+                logger.error(f"Error forwarding message {i + 1}: {e}")
+                continue
+
+        # Get thread link
+        thread_link = f"https://t.me/c/{str(group.id)[4:]}/{thread_msg.id}"
+        logger.info(f"Generated thread link: {thread_link}")
+        return thread_link
+
+    except Exception as e:
+        logger.error(f"Error forwarding dialog: {e}", exc_info=True)
+        return ""

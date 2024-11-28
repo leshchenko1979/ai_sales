@@ -119,7 +119,11 @@ class DialogConductor:
                 if not delivery_result.success:
                     return False, delivery_result.error
 
-                if status == DialogStatus.closed:
+                if status in [
+                    DialogStatus.closed,
+                    DialogStatus.rejected,
+                    DialogStatus.not_qualified,
+                ]:
                     # Send farewell message if dialog ended
                     farewell = await self.sales.generate_farewell_message(self._history)
                     farewell_result = await self._deliver_messages(
@@ -189,6 +193,11 @@ class DialogConductor:
             return result
 
         except asyncio.CancelledError:
+            # Check if dialog was already completed
+            if len(self._history) >= 2 and self._history[-1]["direction"] == "out":
+                # If last message was from bot, consider dialog completed
+                logger.info("Dialog completed before shutdown")
+                return True, None
             # Only log shutdown message if task was cancelled externally
             if self._processing_task is not None:
                 logger.info("Message processing cancelled - likely due to shutdown")
