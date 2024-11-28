@@ -1,13 +1,21 @@
+# Environment and IDE
 /.env
 /.env.example
 /.vscode
+
+# Python
 __pycache__
 venv
-sales_bot.session
-sales_bot/logs/sales_bot.log
+*.pyc
+
+# Project data directories
 /sessions/
 /logs/
 /data/
 /exports/
+
+# Log and session files
 *.log
 *.session
+sales_bot.session
+sales_bot/logs/sales_bot.log

@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List
 
 from core.messaging.conductor import DialogConductor
+from core.messaging.enums import DialogStatus
 from core.telegram.client import app
 from pyrogram import Client, filters
 from pyrogram.raw import functions
@@ -17,6 +18,27 @@ test_dialogs: Dict[int, DialogConductor] = {}
 dialog_messages: Dict[int, List[Message]] = {}
 # Testing group username
 TESTING_GROUP = "@sales_bot_analysis"
+
+# Mapping from dialog status to result tag
+STATUS_TO_TAG = {
+    DialogStatus.active: "#уточнение",  # Dialog is still active
+    DialogStatus.closed: "#продажа",  # Successful sale
+    DialogStatus.blocked: "#заблокировал",  # Blocked
+    DialogStatus.rejected: "#отказ",  # Explicit rejection
+    DialogStatus.not_qualified: "#неподходит",  # Not qualified
+    DialogStatus.meeting_scheduled: "#успех",  # Meeting scheduled
+}
+
+# Tag descriptions for the message
+TAG_DESCRIPTIONS = {
+    "#уточнение": "Требуется уточнение деталей",
+    "#продажа": "Успешная продажа",
+    "#неподходит": "Клиент не соответствует критериям",
+    "#отказ": "Отказ от покупки",
+    "#успех": "Назначена встреча с клиентом",
+    "#тест": "Тестовый диалог с отделом продаж",
+    "#заблокировал": "Клиент заблокировал бота",
+}
 
 
 async def send_completion_message(
@@ -168,11 +190,13 @@ async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
         str: Link to the thread message
     """
     try:
-        if user_id not in dialog_messages:
-            logger.error(f"No messages found for user {user_id}")
+        if user_id not in dialog_messages or user_id not in test_dialogs:
+            logger.error(f"No messages or dialog found for user {user_id}")
             return ""
 
         messages = dialog_messages[user_id]
+        conductor = test_dialogs[user_id]
+
         if not messages:
             logger.error("Empty messages list")
             return ""
@@ -207,6 +231,18 @@ async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
 
         logger.info(f"Created forum topic: {topic_id}")
 
+        # Get dialog status and corresponding tag
+        history = conductor.get_history()
+        status = DialogStatus.active  # Default status
+        if history and len(history) >= 2:
+            # Get status from last AI response
+            last_response = history[-1]
+            if "status" in last_response:
+                status = last_response["status"]
+
+        result_tag = STATUS_TO_TAG.get(status, "#тест")
+        tag_description = TAG_DESCRIPTIONS.get(result_tag, "")
+
         # Send initial message in topic using reply_to
         thread_msg = await client.send_message(
             chat_id=group.id,
@@ -214,7 +250,7 @@ async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
             text=f"📊 Информация о диалоге:\n"
             f"- Продавец: {messages[0].from_user.first_name}\n"
             f"- Дата: {messages[0].date.strftime('%Y-%m-%d')}\n"
-            f"- Итог: #тест\n\n"
+            f"- Итог: {result_tag} - {tag_description}\n\n"
             f"💬 Диалог ниже.\n"
             f"Вы можете:\n"
             f"- Ответить на конкретное сообщение с комментарием\n"
