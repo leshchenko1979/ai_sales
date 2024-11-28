@@ -3,6 +3,8 @@
 import logging
 from typing import Dict, List, Optional
 
+from infrastructure.config import DEFAULT_AI_PROVIDER
+
 from ..providers.base import AIProvider
 from .formatter import PromptFormatter
 
@@ -19,9 +21,7 @@ class SalesManager:
         Args:
             provider: Optional AI provider instance. If not provided, uses default provider.
         """
-        from ..providers.openrouter import OpenRouterProvider
-
-        self.provider = provider or OpenRouterProvider()
+        self.provider = provider or AIProvider.create(DEFAULT_AI_PROVIDER)
         self.prompt_formatter = PromptFormatter()
 
     async def get_response(
@@ -53,15 +53,14 @@ class SalesManager:
             RuntimeError: If API request fails
         """
         try:
-            # Get last client message
-            last_message = next(
-                (
-                    msg["text"]
-                    for msg in reversed(dialog_history)
-                    if msg["direction"] == "in"
-                ),
-                "",
-            )
+            # Get all client messages after the last bot message
+            last_messages = []
+            for msg in reversed(dialog_history):
+                if msg["direction"] == "out":
+                    break
+                if msg["direction"] == "in":
+                    last_messages.append(msg["text"])
+            last_message = "\n".join(reversed(last_messages)) or ""
 
             # Format prompt for sales response
             prompt = self.prompt_formatter.format_manager_prompt(

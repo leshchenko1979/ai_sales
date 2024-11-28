@@ -1,7 +1,9 @@
 """Sales conversation advisor."""
 
 import logging
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
+
+from infrastructure.config import DEFAULT_AI_PROVIDER
 
 from ..providers.base import AIProvider
 from .formatter import PromptFormatter
@@ -12,9 +14,9 @@ logger = logging.getLogger(__name__)
 class SalesAdvisor:
     """Provides conversation analysis and advice."""
 
-    def __init__(self, provider: AIProvider):
+    def __init__(self, provider: Optional[AIProvider] = None):
         """Initialize advisor."""
-        self.provider = provider
+        self.provider = provider or AIProvider.create(DEFAULT_AI_PROVIDER)
         self.prompt_formatter = PromptFormatter()
 
     async def get_tip(

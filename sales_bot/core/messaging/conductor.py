@@ -2,19 +2,16 @@
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from core.ai import SalesAdvisor, SalesManager
 from core.messaging.delivery import MessageDelivery
-from core.messaging.models import DeliveryResult
-
-from .models import DialogStatus
+from core.messaging.models import DialogStatus
 
 logger = logging.getLogger(__name__)
 
 # Constants
-MESSAGE_BATCH_DELAY = 5  # seconds to wait after last message before processing
+MAX_QUEUE_SIZE = 10  # maximum number of pending messages
 
 
 class DialogConductor:
@@ -34,73 +31,39 @@ class DialogConductor:
         self.advisor = SalesAdvisor(self.sales.provider)
         self.message_delivery = MessageDelivery()
         self._history: List[Dict[str, str]] = []
+        self._responded_messages: Set[str] = (
+            set()
+        )  # Track which messages have been responded to
         self._send_func = send_func
         self._dialog_id = dialog_id or 0  # Use 0 as default for non-persistent dialogs
 
-        # Message batching state
-        self._pending_messages: List[str] = []
+        # Message queue state
+        self._message_queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
         self._processing_task: Optional[asyncio.Task] = None
-        self._last_message_time: Optional[datetime] = None
+        self._ai_task: Optional[asyncio.Task] = None
+        self._is_processing = False
 
-    async def _deliver_messages(
-        self, messages: List[str], error_context: str
-    ) -> DeliveryResult:
-        """
-        Deliver messages and update history.
-
-        Args:
-            messages: List of messages to deliver
-            error_context: Context for error logging
-
-        Returns:
-            DeliveryResult: Result of message delivery
-        """
+    async def _process_message_queue(self):
+        """Process messages from the queue."""
         try:
-            task = asyncio.create_task(
-                self.message_delivery.deliver_messages(
-                    dialog_id=self._dialog_id,
-                    messages=messages,
-                    send_func=self._send_func,
-                )
-            )
-            delivery_result = await task
+            # Collect all messages from queue
+            messages = []
+            while True:
+                try:
+                    message = self._message_queue.get_nowait()
+                    messages.append(message)
+                    self._message_queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
 
-            if delivery_result.success:
-                # Add messages to history on success
-                for msg in messages:
-                    self._history.append({"direction": "out", "text": msg})
-            else:
-                logger.error(
-                    f"Failed to deliver {error_context}: {delivery_result.error}"
-                )
-
-            return delivery_result
-        except Exception as e:
-            logger.error(f"Error in message delivery: {e}", exc_info=True)
-            return DeliveryResult(success=False, error=str(e))
-
-    async def _process_message_batch(self) -> Tuple[bool, Optional[str]]:
-        """Process accumulated messages after delay."""
-        try:
-            # Wait for the batch delay
-            await asyncio.sleep(MESSAGE_BATCH_DELAY)
-
-            # Get all pending messages
-            messages = self._pending_messages.copy()
             if not messages:
                 return False, None
+            # Get AI response
+            try:
+                self._ai_task = asyncio.create_task(self.advisor.get_tip(self._history))
+                status, reason, warmth, stage, advice = await self._ai_task
 
-            # Clear pending messages before processing to avoid duplicates
-            self._pending_messages.clear()
-
-            # Process each message in order
-            for message in messages:
-                # Get advice from advisor
-                status, reason, warmth, stage, advice = await self.advisor.get_tip(
-                    self._history
-                )
-
-                # Generate response
+                # Generate response for combined message
                 response = await self.sales.get_response(
                     dialog_history=self._history,
                     status=status,
@@ -110,55 +73,54 @@ class DialogConductor:
                     stage=stage,
                 )
 
-                # Split and deliver response
-                split_messages = self.message_delivery.split_messages(response)
-                delivery_result = await self._deliver_messages(
-                    split_messages, "response messages"
+            except asyncio.CancelledError:
+                raise
+
+            finally:
+                self._ai_task = None
+
+            # Split response into chunks if needed
+            split_messages = self.message_delivery.split_messages(response)
+
+            # Deliver each chunk with proper delays
+            for chunk in split_messages:
+                delivery_result = await self.message_delivery.deliver_messages(
+                    dialog_id=self._dialog_id,
+                    messages=[chunk],  # Send one chunk at a time
+                    send_func=self._send_func,
                 )
 
-                if not delivery_result.success:
+                if delivery_result.success:
+                    # Add the chunk to history
+                    self._history.append({"direction": "out", "text": chunk})
+                else:
                     return False, delivery_result.error
 
-                if status in [
-                    DialogStatus.closed,
-                    DialogStatus.rejected,
-                    DialogStatus.not_qualified,
-                ]:
-                    # Send farewell message if dialog ended
-                    farewell = await self.sales.generate_farewell_message(self._history)
-                    farewell_result = await self._deliver_messages(
-                        [farewell], "farewell message"
-                    )
-                    if not farewell_result.success:
-                        return (
-                            True,
-                            f"Failed to deliver farewell: {farewell_result.error}",
-                        )
-                    return (
-                        True,
-                        None,
-                    )  # Return None as error since this is normal completion
+            if status in [
+                DialogStatus.closed,
+                DialogStatus.rejected,
+                DialogStatus.not_qualified,
+                DialogStatus.meeting_scheduled,
+            ]:
+                # Dialog is complete
+                return True, None
 
             return False, None
 
         except asyncio.CancelledError:
-            # Let the cancellation propagate up to handle_message
+            # Let the cancellation propagate up
             raise
-
         except Exception as e:
-            logger.error(f"Error processing message batch: {e}", exc_info=True)
+            logger.error(f"Error processing message queue: {e}", exc_info=True)
             return False, str(e)
 
     async def handle_message(self, message: str) -> Tuple[bool, Optional[str]]:
         """
-        Handle an incoming message, adding it to the current batch for delayed processing.
+        Handle an incoming message by adding it to the message queue.
 
-        The message will be accumulated with other recent messages and processed together
-        after a short delay. This creates a more natural conversation flow by allowing
-        the bot to "read" multiple messages before responding.
-
-        When a new message arrives, any ongoing message delivery is interrupted to maintain
-        natural conversation flow.
+        Messages are processed in batches. If the queue is full, older messages are
+        discarded to make room for new ones. Any ongoing AI response generation is
+        cancelled when a new message arrives.
 
         Args:
             message: User message to handle
@@ -169,43 +131,57 @@ class DialogConductor:
                 - error_message: Error message if any
         """
         try:
-            # Add message to history
+            # Add message to history immediately
             self._history.append({"direction": "in", "text": message})
 
-            # Add to pending messages
-            self._pending_messages.append(message)
-            self._last_message_time = datetime.now()
+            # Cancel any ongoing AI task
+            if self._ai_task and not self._ai_task.done():
+                self._ai_task.cancel()
+                try:
+                    await self._ai_task
+                except asyncio.CancelledError:
+                    pass
+                self._ai_task = None
 
-            # Cancel any existing processing
+            # Cancel any ongoing processing task
             if self._processing_task and not self._processing_task.done():
                 self._processing_task.cancel()
                 try:
                     await self._processing_task
                 except asyncio.CancelledError:
-                    pass  # Expected when cancelling task
+                    pass
+                self._processing_task = None
 
-            # Create and await new processing task
-            self._processing_task = asyncio.create_task(self._process_message_batch())
-            result = await self._processing_task
+            # Try to add message to queue, removing oldest if full
+            try:
+                self._message_queue.put_nowait(message)
+            except asyncio.QueueFull:
+                try:
+                    # Remove oldest message if queue is full
+                    self._message_queue.get_nowait()
+                    self._message_queue.task_done()
+                    # Add new message
+                    self._message_queue.put_nowait(message)
+                except asyncio.QueueEmpty:
+                    pass
 
-            # Clear task reference after completion
-            self._processing_task = None
+            # Process this message
+            self._is_processing = True
+            self._processing_task = asyncio.create_task(self._process_message_queue())
+            try:
+                result = await self._processing_task
+            finally:
+                self._is_processing = False
+                self._processing_task = None
             return result
 
         except asyncio.CancelledError:
             # Check if dialog was already completed
             if len(self._history) >= 2 and self._history[-1]["direction"] == "out":
-                # If last message was from bot, consider dialog completed
                 logger.info("Dialog completed before shutdown")
                 return True, None
-            # Only log shutdown message if task was cancelled externally
-            if self._processing_task is not None:
-                logger.info("Message processing cancelled - likely due to shutdown")
-                return (
-                    False,
-                    "Обработка сообщения прервана из-за завершения работы бота",
-                )
-            raise  # Re-raise if it's an internal cancellation
+            logger.info("Message processing cancelled - likely due to shutdown")
+            return False, "Обработка сообщения прервана из-за завершения работы бота"
 
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
@@ -213,28 +189,41 @@ class DialogConductor:
 
     async def start_dialog(self) -> None:
         """Start new dialog and send initial message."""
-        self._history = []
-        self._pending_messages = []
-        initial_message = await self.sales.generate_initial_message()
+        try:
+            # Get initial message
+            response = await self.sales.generate_initial_message()
 
-        # Split and deliver initial message
-        messages = self.message_delivery.split_messages(initial_message)
-        await self._deliver_messages(messages, "initial messages")
+            # Split and deliver
+            split_messages = self.message_delivery.split_messages(response)
+            delivery_result = await self.message_delivery.deliver_messages(
+                dialog_id=self._dialog_id,
+                messages=split_messages,
+                send_func=self._send_func,
+            )
+
+            # Only add to history if delivery was successful
+            if delivery_result.success:
+                for msg in split_messages:
+                    self._history.append({"direction": "out", "text": msg})
+            else:
+                logger.error(
+                    f"Failed to deliver initial message: {delivery_result.error}"
+                )
+                raise RuntimeError("Failed to start dialog")
+
+        except Exception as e:
+            logger.error(f"Error starting dialog: {e}", exc_info=True)
+            raise
 
     def get_history(self) -> List[Dict[str, str]]:
         """Get current dialog history."""
         return self._history.copy()
 
-    async def clear_history(self) -> None:
+    def clear_history(self) -> None:
         """Clear dialog history and cancel any ongoing tasks."""
+        self._history.clear()
+        self._responded_messages.clear()
+        if self._ai_task and not self._ai_task.done():
+            self._ai_task.cancel()
         if self._processing_task and not self._processing_task.done():
             self._processing_task.cancel()
-            try:
-                await self._processing_task
-            except asyncio.CancelledError:
-                pass
-
-        self._history.clear()
-        self._pending_messages.clear()
-        self._last_message_time = None
-        self.message_delivery.interrupt_delivery()

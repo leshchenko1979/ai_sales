@@ -6,6 +6,7 @@ from typing import Dict, List
 from core.messaging.conductor import DialogConductor
 from core.telegram.client import app
 from pyrogram import Client, filters
+from pyrogram.raw import functions
 from pyrogram.types import Message
 
 logger = logging.getLogger(__name__)
@@ -186,43 +187,59 @@ async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
 
         logger.info(f"Got testing group: {group.id}")
 
-        # Create thread with metadata
+        # Create forum topic using raw API
+        title = f"Диалог с {messages[0].from_user.first_name}"
+        channel_peer = await client.resolve_peer(group.id)
+
+        topic = await client.invoke(
+            functions.channels.CreateForumTopic(
+                channel=channel_peer,
+                title=title,
+                icon_color=0x6FB9F0,  # Light blue color
+                random_id=client.rnd_id(),
+            )
+        )
+
+        topic_id = topic.updates[0].id
+        if not topic_id:
+            logger.error("Failed to create forum topic")
+            return ""
+
+        logger.info(f"Created forum topic: {topic_id}")
+
+        # Send initial message in topic using reply_to
         thread_msg = await client.send_message(
-            group.id,
-            f"📊 Информация о диалоге:\n"
+            chat_id=group.id,
+            reply_to_message_id=topic_id,
+            text=f"📊 Информация о диалоге:\n"
             f"- Продавец: {messages[0].from_user.first_name}\n"
             f"- Дата: {messages[0].date.strftime('%Y-%m-%d')}\n"
             f"- Итог: #тест\n\n"
             f"💬 Диалог ниже.\n"
             f"Вы можете:\n"
-            f"- Ответьте на конкретное сообщение с комментарием\n"
-            f"- Поставьте реакцию на сообщение бота\n"
-            f"- Запишите общее впечатление (можно голосовым)",
+            f"- Ответить на конкретное сообщение с комментарием\n"
+            f"- Поставить реакцию на сообщение бота\n"
+            f"- Записать общее впечатление (можно голосовым)",
         )
 
-        logger.info(f"Created thread message: {thread_msg}")
-        logger.info(f"Thread message type: {type(thread_msg)}")
-        logger.info(f"Thread message dir: {dir(thread_msg)}")
+        logger.info(f"Created thread message: {thread_msg.id}")
 
-        # Forward all messages in thread
-        for i, msg in enumerate(messages):
-            try:
-                # First forward message
-                forwarded = await msg.forward(chat_id=group.id)
-                # Then reply to thread
-                if forwarded:
-                    await forwarded.reply(
-                        ".",  # Empty reply to create thread
-                        message_thread_id=thread_msg.id,
-                        quote=True,
-                    )
-                logger.info(f"Forwarded message {i + 1}/{len(messages)}")
-            except Exception as e:
-                logger.error(f"Error forwarding message {i + 1}: {e}")
-                continue
+        # Forward all messages in topic using raw API
+        try:
+            await client.invoke(
+                functions.messages.ForwardMessages(
+                    from_peer=await client.resolve_peer(messages[0].chat.id),
+                    to_peer=await client.resolve_peer(group.id),
+                    top_msg_id=topic_id,
+                    id=[msg.id for msg in messages],
+                    random_id=[client.rnd_id() for _ in messages],
+                )
+            )
+        except Exception as e:
+            logger.error(f"Error forwarding message: {e}")
 
         # Get thread link
-        thread_link = f"https://t.me/c/{str(group.id)[4:]}/{thread_msg.id}"
+        thread_link = f"https://t.me/c/{str(group.id)[4:]}/{topic_id}/{thread_msg.id}"
         logger.info(f"Generated thread link: {thread_link}")
         return thread_link
 

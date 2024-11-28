@@ -18,3 +18,4 @@ class DialogStatus(str, Enum):
     blocked = "blocked"
     rejected = "rejected"
     not_qualified = "not_qualified"
+    meeting_scheduled = "meeting_scheduled"

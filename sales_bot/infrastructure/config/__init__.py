@@ -4,6 +4,10 @@ import os
 from pathlib import Path
 from typing import Final
 
+import dotenv
+
+dotenv.load_dotenv()
+
 # Base paths
 ROOT_DIR: Final[Path] = Path(__file__).parent.parent.parent
 DATA_DIR: Final[Path] = ROOT_DIR / "data"
@@ -22,11 +26,23 @@ APP_URL: Final[str] = os.getenv("APP_URL", "https://ai-sales-bot.example.com")
 DATABASE_URL: Final[str] = os.getenv("DATABASE_URL")
 
 # OpenRouter API
+OPENROUTER_BASE_API_URL: Final[str] = os.getenv(
+    "OPENROUTER_BASE_API_URL", "https://openrouter.ai"
+)
 OPENROUTER_API_KEY: Final[str] = os.getenv("OPENROUTER_API_KEY")
-# OPENROUTER_MODEL: Final[str] = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 OPENROUTER_MODEL: Final[str] = os.getenv(
     "OPENROUTER_MODEL", "perplexity/llama-3.1-sonar-large-128k-chat"
 )
+
+# OpenAI API
+OPENAI_API_KEY: Final[str] = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_API_URL: Final[str] = os.getenv(
+    "OPENAI_BASE_API_URL", "https://api.proxyapi.ru/openai/v1"
+)
+OPENAI_MODEL: Final[str] = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+# AI Provider
+DEFAULT_AI_PROVIDER: Final[str] = os.getenv("DEFAULT_AI_PROVIDER", "openai")
 
 # Telegram
 API_ID: Final[int] = int(os.getenv("API_ID", "0"))
