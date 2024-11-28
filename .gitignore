@@ -8,5 +8,6 @@ sales_bot/logs/sales_bot.log
 /sessions/
 /logs/
 /data/
+/exports/
 *.log
 *.session
