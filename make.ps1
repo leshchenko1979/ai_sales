@@ -72,10 +72,11 @@ function Install-RemoteDependencies {
 function Format-Code {
     Write-Host "Formatting code..." -ForegroundColor Green
     Write-Host "Running isort..." -ForegroundColor Green
-    .\venv\Scripts\isort sales_bot script_tests
+    .\venv\Scripts\isort sales_bot tests
 
     Write-Host "Running black..." -ForegroundColor Green
-    .\venv\Scripts\black sales_bot script_tests
+    .\venv\Scripts\black sales_bot
+    .\venv\Scripts\black tests
 }
 
 function Run-Tests {
@@ -121,7 +122,7 @@ function Deploy-Files {
     Get-ChildItem -Path "./sales_bot" -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force
 
     # Create a temporary directory for deployment files
-    $tempDir = "temp_deploy"
+    $tempDir = Join-Path $env:TEMP "ai_sales_deploy"
     if (Test-Path $tempDir) {
         Remove-Item -Path $tempDir -Recurse -Force
     }
@@ -146,11 +147,10 @@ function Deploy-Files {
 
     # Deploy files
     Write-Host "`nCopying files to server..." -ForegroundColor Green
-    Copy-Item requirements.txt -Destination $tempDir
+    # First copy requirements.txt to the correct location
+    scp requirements.txt "${RemoteUser}@${RemoteHost}:/home/sales_bot/"
+    # Then copy all other files
     scp -r -p ./$tempDir/* "${RemoteUser}@${RemoteHost}:/home/sales_bot/sales_bot/"
-
-    # Cleanup temp directory
-    Remove-Item -Path $tempDir -Recurse -Force
 
     # Set permissions
     ssh "${RemoteUser}@${RemoteHost}" 'sudo chown -R sales_bot:sales_bot /home/sales_bot'
@@ -234,8 +234,6 @@ function Start-Service {
         echo "Service started successfully!"
         echo "Recent application logs:"
         sudo tail -n 20 /var/log/sales_bot/app.log
-        echo "Recent error logs:"
-        sudo tail -n 20 /var/log/sales_bot/error.log
 '@
 }
 

@@ -4,8 +4,9 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from core.db import DialogQueries, with_queries
-from core.messages.models import Message
+from core.db.decorators import with_queries
+from core.messaging.models import Message
+from core.messaging.queries import DialogQueries
 
 logger = logging.getLogger(__name__)
 

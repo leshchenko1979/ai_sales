@@ -4,13 +4,14 @@ import asyncio
 import logging
 import random
 
-from core.db import AccountQueries, with_queries
+from core.db import with_queries
 from pyrogram.errors import FloodWait
 
 from .client import AccountClient
 from .models import Account
 from .monitoring import AccountMonitor
 from .notifications import AccountNotifier
+from .queries.account import AccountQueries
 
 logger = logging.getLogger(__name__)
 

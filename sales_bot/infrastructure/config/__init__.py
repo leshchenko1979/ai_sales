@@ -23,7 +23,10 @@ DATABASE_URL: Final[str] = os.getenv("DATABASE_URL")
 
 # OpenRouter API
 OPENROUTER_API_KEY: Final[str] = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_MODEL: Final[str] = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+# OPENROUTER_MODEL: Final[str] = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_MODEL: Final[str] = os.getenv(
+    "OPENROUTER_MODEL", "perplexity/llama-3.1-sonar-large-128k-chat"
+)
 
 # Telegram
 API_ID: Final[int] = int(os.getenv("API_ID", "0"))
@@ -49,7 +52,7 @@ WARMUP_MESSAGES: Final[int] = int(os.getenv("WARMUP_MESSAGES", "5"))
 CHECK_INTERVAL: Final[int] = int(os.getenv("CHECK_INTERVAL", str(60 * 5)))  # 5 minutes
 
 # Logging
-LOG_LEVEL: Final[str] = os.getenv("LOG_LEVEL", "INFO")
+LOG_LEVEL: Final[str] = os.getenv("LOG_LEVEL", "DEBUG")
 LOG_FORMAT: Final[str] = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 # Export settings
@@ -57,3 +60,16 @@ MAX_EXPORT_MESSAGES: Final[int] = int(os.getenv("MAX_EXPORT_MESSAGES", "1000"))
 EXPORT_DATETIME_FORMAT: Final[str] = "%Y%m%d_%H%M%S"
 EXPORT_BATCH_SIZE: Final[int] = int(os.getenv("EXPORT_BATCH_SIZE", "1000"))
 EXPORT_CHUNK_SIZE: Final[int] = int(os.getenv("EXPORT_CHUNK_SIZE", "100"))
+
+# Common messages
+ERROR_MSG: Final[str] = "Произошла ошибка. Попробуйте позже."
+ACCESS_DENIED_MSG: Final[str] = "У вас нет доступа к этой команде."
+
+# Scheduler
+SCHEDULER_ON: Final[bool] = False
+
+# Prompts
+PROMPTS_PATH: Final[Path] = ROOT_DIR / "core" / "ai" / "sales" / "prompts.yaml"
+
+# Testing
+TESTER_TELEGRAM_IDS: Final[list[int]] = []

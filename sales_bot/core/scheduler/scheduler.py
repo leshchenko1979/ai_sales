@@ -5,7 +5,8 @@ import logging
 from datetime import datetime, time, timedelta
 
 from core.accounts import AccountMonitor
-from core.db import AccountQueries, with_queries
+from core.accounts.queries import AccountQueries
+from core.db import with_queries
 from infrastructure.config import CHECK_INTERVAL, RESET_HOUR_UTC
 
 logger = logging.getLogger(__name__)

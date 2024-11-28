@@ -1,7 +1,5 @@
-"""AI integration module."""
+"""AI package for sales conversations."""
 
-from .gpt import GPTClient
+from .sales import SalesAdvisor, SalesManager
 
-__all__ = [
-    "GPTClient",
-]
+__all__ = ["SalesManager", "SalesAdvisor"]

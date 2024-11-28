@@ -3,11 +3,12 @@
 import logging
 from datetime import datetime
 
-from core.db import AccountQueries, with_queries
+from core.db import with_queries
 from infrastructure.config import BOT_TOKEN
 from pyrogram import Client
 
 from .models import Account
+from .queries.account import AccountQueries
 
 logger = logging.getLogger(__name__)
 

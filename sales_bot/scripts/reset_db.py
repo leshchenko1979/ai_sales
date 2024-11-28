@@ -26,7 +26,7 @@ async def reset_database():
         # Import modules
         from core.accounts.models import Account  # noqa: E402 F401
         from core.db import Base, engine
-        from core.messages.models import Dialog, Message  # noqa: E402 F401
+        from core.messaging.models import Dialog, Message  # noqa: E402 F401
 
         # Create tables
         logger.info("Dropping all tables...")

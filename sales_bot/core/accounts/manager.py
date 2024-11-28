@@ -4,10 +4,12 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from core.db import AccountQueries, with_queries
+from core.db import with_queries
+from utils.phone import normalize_phone
 
 from .client import AccountClient
 from .models import Account, AccountStatus
+from .queries.account import AccountQueries
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,8 @@ class AccountManager:
     ) -> Optional[Account]:
         """Get or create account."""
         try:
+            phone = normalize_phone(phone)
+
             # Try to get existing account
             account = await queries.get_account_by_phone(phone)
             if account:
@@ -39,6 +43,8 @@ class AccountManager:
     async def request_code(self, phone: str, queries: AccountQueries) -> bool:
         """Request authorization code."""
         try:
+            phone = normalize_phone(phone)
+
             # Get account
             account = await queries.get_account_by_phone(phone)
             if not account:
@@ -74,6 +80,8 @@ class AccountManager:
     ) -> bool:
         """Authorize account with code."""
         try:
+            phone = normalize_phone(phone)
+
             # Get account
             account = await queries.get_account_by_phone(phone)
             if not account:

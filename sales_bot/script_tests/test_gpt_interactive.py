@@ -7,13 +7,11 @@ import logging
 # DO NOT REMOVE
 import sys
 from pathlib import Path
-from typing import Dict, List
 
 root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir))
 
-
-from core.ai.gpt import GPTClient  # noqa: E402
+from core.messaging.conductor import DialogConductor  # noqa: E402
 
 
 # Цвета для вывода
@@ -40,19 +38,20 @@ class ColoredFormatter(logging.Formatter):
 # Добавляем обработчик для вывода в консоль
 handler = logging.StreamHandler()
 handler.setFormatter(ColoredFormatter())
-
 logger.addHandler(handler)
 
 
 async def main():
     """Run interactive test."""
-    client = GPTClient()
-    dialog_history: List[Dict[str, str]] = []
+
+    # Create conductor with print function
+    async def print_message(text: str) -> None:
+        print(f"{Colors.BLUE}Bot: {text}{Colors.RESET}")
+
+    conductor = DialogConductor(send_func=print_message)
 
     # Start conversation
-    initial_message = await client.generate_initial_message()
-    print(f"{Colors.BLUE}Bot: {initial_message}{Colors.RESET}")
-    dialog_history.append({"direction": "out", "text": initial_message})
+    await conductor.start_dialog()
 
     while True:
         try:
@@ -63,35 +62,15 @@ async def main():
                 logger.info("Empty input, exiting...")
                 break
 
-            dialog_history.append({"direction": "in", "text": user_message})
+            # Process message
+            is_completed, error = await conductor.handle_message(user_message)
 
-            # Get advisor tip
-            status, warmth, reason, advice, stage = await client.get_advisor_tip(
-                dialog_history
-            )
-            logger.info("\nСтатус диалога:")
-            logger.info(f"├─ Статус: {status}")
-            logger.info(f"├─ Этап: {stage}")
-            logger.info(f"├─ Уровень теплоты: {warmth}")
-            logger.info(f"├─ Причина: {reason}")
-            logger.info(f"└─ Совет: {advice}\n")
-
-            # Generate response
-            bot_response = await client.get_manager_response(
-                dialog_history, status, warmth, reason, advice, stage
-            )
-            print(f"{Colors.BLUE}Bot: {bot_response}{Colors.RESET}")
-            dialog_history.append({"direction": "out", "text": bot_response})
-
-            # Check if we should end the conversation
-            if status != "IN_PROGRESS":
-                logger.info("\nЗавершаем диалог.")
-                if status == "SCHEDULE_MEETING":
-                    call_msg = (
-                        "Отлично! Для назначения звонка, пожалуйста, "
-                        "отправьте слово 'звонок' на адрес call@opendev.ru"
-                    )
-                    print(f"{Colors.BLUE}Bot: {call_msg}{Colors.RESET}")
+            # Handle dialog end or error
+            if is_completed:
+                logger.info("\nДиалог успешно завершен.")
+                break
+            elif error:
+                logger.error(f"Ошибка в диалоге: {error}")
                 break
 
         except EOFError:
@@ -100,15 +79,14 @@ async def main():
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received, exiting gracefully...")
             break
-        except Exception:
-            logger.error("Error during test: ", exc_info=True)
+        except Exception as e:
+            logger.error("Error in dialog: %s", e, exc_info=True)
             break
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received, exiting gracefully...")
-    except Exception:
-        logger.error("Error during test: ", exc_info=True)
+    except Exception as e:
+        logger.error("Fatal error: %s", e, exc_info=True)
+        sys.exit(1)

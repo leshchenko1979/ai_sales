@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, time, timedelta
 
-from core.db import AccountQueries, with_queries
+from core.db import with_queries
 from infrastructure.config import (
     MAX_MESSAGES_PER_DAY,
     MAX_MESSAGES_PER_HOUR,
@@ -12,6 +12,7 @@ from infrastructure.config import (
 )
 
 from .models import Account
+from .queries.account import AccountQueries
 
 logger = logging.getLogger(__name__)
 

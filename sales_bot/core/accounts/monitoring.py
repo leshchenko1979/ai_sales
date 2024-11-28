@@ -4,10 +4,11 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional
 
-from core.db import AccountQueries, with_queries
+from core.db import with_queries
 
 from .client import AccountClient
 from .models import Account, AccountStatus
+from .queries.account import AccountQueries
 
 logger = logging.getLogger(__name__)
 

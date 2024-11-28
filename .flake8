@@ -1,18 +1,8 @@
 [flake8]
 max-line-length = 88
-extend-ignore = E203, W503
+extend-ignore = E203, W503, E501
 select = C,E,F,W,B,B950
 exclude = .git,__pycache__,build,dist
 docstring-convention = google
 per-file-ignores =
     __init__.py:F401
-    sales_bot/accounts/manager.py:F401
-    sales_bot/accounts/monitoring.py:F401
-    sales_bot/accounts/notifications.py:F401
-    sales_bot/accounts/rotation.py:F401
-    sales_bot/accounts/safety.py:F401
-    sales_bot/accounts/warmup.py:F401,F841
-    sales_bot/bot/commands.py:F401,F811
-    sales_bot/bot/gpt.py:F401,E501
-    sales_bot/db/models.py:F401
-    sales_bot/db/queries.py:F401,F811,E711

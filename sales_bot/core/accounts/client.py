@@ -13,6 +13,7 @@ from pyrogram.errors import (
     FloodWait,
     SessionPasswordNeeded,
 )
+from utils.phone import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class AccountClient:
 
     def __init__(self, phone: str, session_string: Optional[str] = None):
         """Initialize client."""
-        self.phone = phone
+        self.phone = normalize_phone(phone)
         self.session_string = session_string
         self.client: Optional[Client] = None
 

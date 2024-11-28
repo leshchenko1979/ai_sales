@@ -1,15 +1,14 @@
 """Database module."""
 
-from .base import BaseQueries, engine, get_db, with_queries
+from .base import BaseQueries, async_session, engine, get_db
+from .decorators import with_queries
 from .models import Base
-from .queries import AccountQueries, DialogQueries
 
 __all__ = [
     "Base",
     "BaseQueries",
-    "engine",
-    "get_db",
     "with_queries",
-    "AccountQueries",
-    "DialogQueries",
+    "engine",
+    "async_session",
+    "get_db",
 ]

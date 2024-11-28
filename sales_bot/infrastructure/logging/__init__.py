@@ -15,6 +15,7 @@ def setup_logging():
     # Create console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)  # Console shows INFO and above
 
     # Create file handler
     log_file = LOGS_DIR / "sales_bot.log"
@@ -25,6 +26,7 @@ def setup_logging():
         encoding="utf-8",
     )
     file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)  # File shows all logs
 
     # Get root logger
     root_logger = logging.getLogger()

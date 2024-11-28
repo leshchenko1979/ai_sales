@@ -8,8 +8,9 @@ from core.db.models import Base
 from infrastructure.config import MAX_MESSAGES_PER_DAY, MAX_MESSAGES_PER_HOUR
 from sqlalchemy import BigInteger, Boolean, DateTime
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Integer, String
+from sqlalchemy import Integer, String, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from utils.phone import normalize_phone
 
 if TYPE_CHECKING:
     from core.messages.models import Dialog
@@ -58,6 +59,12 @@ class Account(Base):
         "Dialog", back_populates="account", lazy="selectin"
     )
 
+    def __init__(self, **kwargs):
+        """Initialize account with normalized phone number."""
+        if "phone" in kwargs:
+            kwargs["phone"] = normalize_phone(kwargs["phone"])
+        super().__init__(**kwargs)
+
     @property
     def is_in_flood_wait(self) -> bool:
         """Check if account is in flood wait."""
@@ -99,3 +106,11 @@ class Account(Base):
             f"Account(id={self.id}, phone={self.phone}, "
             f"status={self.status.value}, messages={self.daily_messages})"
         )
+
+
+@event.listens_for(Account, "before_insert")
+@event.listens_for(Account, "before_update")
+def normalize_account_phone(mapper, connection, target):
+    """Normalize phone number before saving to database."""
+    if hasattr(target, "phone") and target.phone:
+        target.phone = normalize_phone(target.phone)
