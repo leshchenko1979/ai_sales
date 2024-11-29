@@ -5,3 +5,4 @@ asyncpg
 aiohttp
 sqlalchemy-utils
 pyyaml
+openai
