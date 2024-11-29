@@ -4,7 +4,10 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+Write-Host "Starting deployment..." -ForegroundColor Green
+
 function Get-EnvVariables {
+    Write-Host "Reading environment variables..." -ForegroundColor Green
     $envVars = @{}
     if (Test-Path .env) {
         Get-Content .env | ForEach-Object {
@@ -49,12 +52,15 @@ function Install-RemoteDependencies {
     )
 
     Write-Host "Installing Python dependencies on remote host..." -ForegroundColor Green
-    ssh "${RemoteUser}@${RemoteHost}" @'
-        cd /home/sales_bot &&
-        sudo -u sales_bot python3 -m venv venv &&
-        sudo -u sales_bot venv/bin/pip install -r requirements.txt &&
-        sudo -u sales_bot venv/bin/pip install pytest
-'@
+
+    $commands = @(
+        'cd /home/sales_bot',
+        'sudo -u sales_bot python3 -m venv venv',
+        'sudo -u sales_bot venv/bin/pip install -r requirements.txt',
+        'sudo -u sales_bot venv/bin/pip install pytest'
+    ) -join ' && '
+
+    ssh "${RemoteUser}@${RemoteHost}" $commands
 }
 
 function Format-Code {
@@ -79,10 +85,13 @@ function Setup-Logs {
     )
 
     Write-Host "Setting up log directory on remote host..." -ForegroundColor Green
-    ssh "${RemoteUser}@${RemoteHost}" @'
-        sudo mkdir -p /var/log/sales_bot &&
-        sudo chown -R sales_bot:sales_bot /var/log/sales_bot
-'@
+
+    $commands = @(
+        'sudo mkdir -p /var/log/sales_bot',
+        'sudo chown -R sales_bot:sales_bot /var/log/sales_bot'
+    ) -join ' && '
+
+    ssh "${RemoteUser}@${RemoteHost}" $commands
 }
 
 function Deploy-Files {
@@ -169,6 +178,9 @@ RestartSec=10
 WantedBy=multi-user.target
 "@
 
+    # Convert to Unix line endings
+    $serviceContent = $serviceContent.Replace("`r`n", "`n")
+
     $serviceContent | ssh "${RemoteUser}@${RemoteHost}" 'sudo tee /etc/systemd/system/sales_bot.service'
 }
 
@@ -182,14 +194,17 @@ function Start-Service {
 
     Write-Host "Starting and verifying service..." -ForegroundColor Green
 
-    ssh "${RemoteUser}@${RemoteHost}" @'
-        sudo systemctl daemon-reload
-        sudo systemctl enable sales_bot
-        sudo systemctl restart sales_bot
-        sleep 5
-        sudo systemctl status sales_bot
-        sudo tail -n 20 /var/log/sales_bot/app.log
-'@
+    # Use single command string with semicolons
+    $commands = @(
+        'sudo systemctl daemon-reload',
+        'sudo systemctl enable sales_bot',
+        'sudo systemctl restart sales_bot',
+        'sleep 5',
+        'sudo systemctl status sales_bot',
+        'sudo tail -n 20 /var/log/sales_bot/app.log'
+    ) -join '; '
+
+    ssh "${RemoteUser}@${RemoteHost}" $commands
 }
 
 function Deploy-All {
@@ -215,7 +230,6 @@ function Deploy-All {
     Write-Host "`nDeployment completed successfully in $($duration.TotalMinutes) minutes" -ForegroundColor Green
 }
 
-# If script is run with arguments, treat them as remote host and user
-if ($args.Count -eq 2) {
-    Deploy-All -RemoteHost $args[0] -RemoteUser $args[1]
-}
+# Main execution
+$envVars = Get-EnvVariables
+Deploy-All -RemoteHost $envVars['REMOTE_HOST'] -RemoteUser $envVars['REMOTE_USER']
