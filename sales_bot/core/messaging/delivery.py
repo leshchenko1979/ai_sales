@@ -26,29 +26,92 @@ class MessageDelivery:
         self._outgoing_queue = asyncio.Queue(maxsize=MAX_OUTGOING_QUEUE_SIZE)
         self._current_delivery_task: Optional[asyncio.Task] = None
 
-    def split_messages(self, text: str) -> List[str]:
-        """
-        Split message on double newlines to preserve paragraph breaks.
-
-        Args:
-            text: Message text to split
-
-        Returns:
-            List of message chunks
-        """
-        # Split on double newlines
-        messages = [p.strip() for p in text.split("\n\n")]
-        # Filter out empty messages
-        return [m for m in messages if m]
-
-    async def _clear_outgoing_queue(self) -> None:
-        """Clear all pending outgoing messages."""
+    @with_queries(MessageQueries)
+    async def deliver_messages(
+        self,
+        dialog_id: int,
+        messages: List[str],
+        send_func: Callable[[str], Any],
+        queries: MessageQueries,
+    ) -> DeliveryResult:
+        """Deliver messages with proper delays and persistence."""
         try:
-            while True:
-                self._outgoing_queue.get_nowait()
-                self._outgoing_queue.task_done()
+            async with self._lock:
+                await self._cancel_current_delivery()
+                await self._clear_outgoing_queue()
+                await self._queue_new_messages(messages)
+
+                success = await self._process_message_queue(
+                    dialog_id=dialog_id, send_func=send_func, queries=queries
+                )
+                return DeliveryResult(success=success)
+
+        except Exception as e:
+            logger.error(f"Message delivery failed: {e}", exc_info=True)
+            await self._cancel_current_delivery()
+            return DeliveryResult(success=False, error=str(e))
+
+    async def _cancel_current_delivery(self) -> None:
+        """Cancel current delivery task if exists."""
+        if self._current_delivery_task and not self._current_delivery_task.done():
+            self._current_delivery_task.cancel()
+            try:
+                await self._current_delivery_task
+            except asyncio.CancelledError:
+                pass
+            self._current_delivery_task = None
+
+    async def _queue_new_messages(self, messages: List[str]) -> None:
+        """Add new messages to the outgoing queue."""
+        for message in messages:
+            try:
+                self._outgoing_queue.put_nowait(message)
+            except asyncio.QueueFull:
+                await self._handle_queue_full(message)
+
+    async def _handle_queue_full(self, message: str) -> None:
+        """Handle case when queue is full by removing oldest message."""
+        try:
+            self._outgoing_queue.get_nowait()
+            self._outgoing_queue.task_done()
+            self._outgoing_queue.put_nowait(message)
         except asyncio.QueueEmpty:
             pass
+
+    async def _process_message_queue(
+        self,
+        dialog_id: int,
+        send_func: Callable[[str], Any],
+        queries: MessageQueries,
+    ) -> bool:
+        """Process all messages in the queue."""
+
+        async def delivery_task():
+            success = True
+            while not self._outgoing_queue.empty():
+                try:
+                    message = self._outgoing_queue.get_nowait()
+                    if not await self._deliver_message(
+                        message=message,
+                        dialog_id=dialog_id,
+                        send_func=send_func,
+                        queries=queries,
+                    ):
+                        success = False
+                    self._outgoing_queue.task_done()
+                except asyncio.QueueEmpty:
+                    break
+            return success
+
+        self._current_delivery_task = asyncio.create_task(delivery_task())
+        success = await self._current_delivery_task
+        self._current_delivery_task = None
+        return success
+
+    def interrupt_delivery(self) -> None:
+        """Interrupt current message delivery."""
+        if self._current_delivery_task and not self._current_delivery_task.done():
+            self._current_delivery_task.cancel()
 
     async def _deliver_message(
         self,
@@ -92,88 +155,26 @@ class MessageDelivery:
             logger.error(f"Failed to deliver message: {e}")
             return False
 
-    @with_queries(MessageQueries)
-    async def deliver_messages(
-        self,
-        dialog_id: int,
-        messages: List[str],
-        send_func: Callable[[str], Any],
-        queries: MessageQueries,
-    ) -> DeliveryResult:
+    async def _clear_outgoing_queue(self) -> None:
+        """Clear all pending outgoing messages."""
+        try:
+            while True:
+                self._outgoing_queue.get_nowait()
+                self._outgoing_queue.task_done()
+        except asyncio.QueueEmpty:
+            pass
+
+    def split_messages(self, text: str) -> List[str]:
         """
-        Deliver messages with proper delays and persistence.
+        Split message on double newlines to preserve paragraph breaks.
 
         Args:
-            dialog_id: Dialog ID
-            messages: Messages to deliver
-            send_func: Function to send message
-            queries: Message queries instance (injected)
+            text: Message text to split
 
         Returns:
-            DeliveryResult with delivery status
+            List of message chunks
         """
-        try:
-            async with self._lock:
-                # Cancel any ongoing delivery
-                if (
-                    self._current_delivery_task
-                    and not self._current_delivery_task.done()
-                ):
-                    self._current_delivery_task.cancel()
-                    try:
-                        await self._current_delivery_task
-                    except asyncio.CancelledError:
-                        pass
-                    self._current_delivery_task = None
-
-                # Clear any pending outgoing messages
-                await self._clear_outgoing_queue()
-
-                # Add new messages to queue
-                for message in messages:
-                    try:
-                        self._outgoing_queue.put_nowait(message)
-                    except asyncio.QueueFull:
-                        # Remove oldest message if queue is full
-                        try:
-                            self._outgoing_queue.get_nowait()
-                            self._outgoing_queue.task_done()
-                            self._outgoing_queue.put_nowait(message)
-                        except asyncio.QueueEmpty:
-                            pass
-
-                # Create new delivery task
-                async def delivery_task():
-                    success = True
-                    while not self._outgoing_queue.empty():
-                        try:
-                            message = self._outgoing_queue.get_nowait()
-                            if not await self._deliver_message(
-                                message=message,
-                                dialog_id=dialog_id,
-                                send_func=send_func,
-                                queries=queries,
-                            ):
-                                success = False
-                            self._outgoing_queue.task_done()
-                        except asyncio.QueueEmpty:
-                            break
-                    return success
-
-                self._current_delivery_task = asyncio.create_task(delivery_task())
-                success = await self._current_delivery_task
-                self._current_delivery_task = None
-
-                return DeliveryResult(success=success)
-
-        except Exception as e:
-            logger.error(f"Message delivery failed: {e}", exc_info=True)
-            if self._current_delivery_task:
-                self._current_delivery_task.cancel()
-                self._current_delivery_task = None
-            return DeliveryResult(success=False, error=str(e))
-
-    def interrupt_delivery(self) -> None:
-        """Interrupt current message delivery."""
-        if self._current_delivery_task and not self._current_delivery_task.done():
-            self._current_delivery_task.cancel()
+        # Split on double newlines
+        messages = [p.strip() for p in text.split("\n\n")]
+        # Filter out empty messages
+        return [m for m in messages if m]

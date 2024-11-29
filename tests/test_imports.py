@@ -60,7 +60,6 @@ def test_message_models():
 def test_message_delivery():
     """Test message delivery imports."""
     from core.messaging.delivery import MessageDelivery  # noqa: F401
-    from core.messaging.manager import MessageManager  # noqa: F401
 
 
 def test_dialog_conductor():
