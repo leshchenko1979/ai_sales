@@ -232,14 +232,7 @@ async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
         logger.info(f"Created forum topic: {topic_id}")
 
         # Get dialog status and corresponding tag
-        history = conductor.get_history()
-        status = DialogStatus.active  # Default status
-        if history and len(history) >= 2:
-            # Get status from last AI response
-            last_response = history[-1]
-            if "status" in last_response:
-                status = last_response["status"]
-
+        status = conductor.get_current_status()
         result_tag = STATUS_TO_TAG.get(status, "#тест")
         tag_description = TAG_DESCRIPTIONS.get(result_tag, "")
 

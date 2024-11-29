@@ -53,7 +53,11 @@ async def test_dialog_completion(conductor):
     history = conductor.get_history()
     assert len(history) == 2
     assert history[0] == {"direction": "in", "text": "test message"}
-    assert history[1] == {"direction": "out", "text": "Test response"}
+    assert history[1] == {
+        "direction": "out",
+        "text": "Test response",
+        "status": DialogStatus.closed,
+    }
 
 
 @pytest.mark.asyncio
@@ -75,7 +79,11 @@ async def test_dialog_not_completed(conductor):
     history = conductor.get_history()
     assert len(history) == 2
     assert history[0] == {"direction": "in", "text": "test message"}
-    assert history[1] == {"direction": "out", "text": "Test response"}
+    assert history[1] == {
+        "direction": "out",
+        "text": "Test response",
+        "status": DialogStatus.active,
+    }
 
 
 @pytest.mark.asyncio
@@ -125,7 +133,11 @@ async def test_history_with_failed_delivery(conductor):
     history = conductor.get_history()
     assert len(history) == 3  # message 1 + response 1 + message 2
     assert history[0] == {"direction": "in", "text": "message 1"}
-    assert history[1] == {"direction": "out", "text": "Test response"}
+    assert history[1] == {
+        "direction": "out",
+        "text": "Test response",
+        "status": DialogStatus.active,
+    }
     assert history[2] == {"direction": "in", "text": "message 2"}
 
 
@@ -182,6 +194,7 @@ async def test_history_with_rapid_messages(conductor):
     assert history[2] == {
         "direction": "out",
         "text": "Response to combined messages: message 1, message 2",
+        "status": DialogStatus.active,
     }
 
 
@@ -236,7 +249,11 @@ async def test_ai_task_cancellation_history(conductor):
     assert len(history) == 3  # Both messages + response to message 2
     assert history[0] == {"direction": "in", "text": "message 1"}
     assert history[1] == {"direction": "in", "text": "message 2"}
-    assert history[2] == {"direction": "out", "text": "Response to message 2"}
+    assert history[2] == {
+        "direction": "out",
+        "text": "Response to message 2",
+        "status": DialogStatus.active,
+    }
 
 
 @pytest.mark.asyncio
@@ -252,7 +269,11 @@ async def test_start_dialog_history(conductor):
     # Check history
     history = conductor.get_history()
     assert len(history) == 1
-    assert history[0] == {"direction": "out", "text": "Initial message"}
+    assert history[0] == {
+        "direction": "out",
+        "text": "Initial message",
+        "status": DialogStatus.active,
+    }
 
     # Test failed start
     conductor.message_delivery.deliver_messages = AsyncMock(
@@ -298,13 +319,26 @@ async def test_message_splitting_by_newlines(conductor):
     history = conductor.get_history()
     assert len(history) == 5  # Input message + 4 paragraphs
     assert history[0] == {"direction": "in", "text": "Test message"}
-    assert history[1] == {"direction": "out", "text": "First paragraph with some text."}
+    assert history[1] == {
+        "direction": "out",
+        "text": "First paragraph with some text.",
+        "status": DialogStatus.active,
+    }
     assert history[2] == {
         "direction": "out",
         "text": "Second paragraph that continues.\nStill the second paragraph.",
+        "status": DialogStatus.active,
     }
-    assert history[3] == {"direction": "out", "text": "Third paragraph here."}
-    assert history[4] == {"direction": "out", "text": "Final paragraph."}
+    assert history[3] == {
+        "direction": "out",
+        "text": "Third paragraph here.",
+        "status": DialogStatus.active,
+    }
+    assert history[4] == {
+        "direction": "out",
+        "text": "Final paragraph.",
+        "status": DialogStatus.active,
+    }
 
     # Verify each paragraph was delivered separately
     assert conductor.message_delivery.deliver_messages.call_count == 4
@@ -313,3 +347,87 @@ async def test_message_splitting_by_newlines(conductor):
     ):
         _, kwargs = call
         assert len(kwargs["messages"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_status_in_history(conductor):
+    """Test that dialog status is correctly stored in history."""
+    # Setup advisor to return different statuses
+    conductor.advisor.get_tip = AsyncMock(
+        side_effect=[
+            (DialogStatus.active, "reason", 0.5, "stage", "advice"),
+            (DialogStatus.closed, "reason", 0.5, "stage", "advice"),
+        ]
+    )
+    conductor.message_delivery.split_messages = MagicMock(side_effect=lambda x: [x])
+
+    # Send first message - should be active
+    await conductor.handle_message("message 1")
+    history = conductor.get_history()
+    assert len(history) == 2
+    assert history[0] == {"direction": "in", "text": "message 1"}
+    assert history[1] == {
+        "direction": "out",
+        "text": "Test response",
+        "status": DialogStatus.active,
+    }
+
+    # Send second message - should be closed
+    await conductor.handle_message("message 2")
+    history = conductor.get_history()
+    assert len(history) == 4
+    assert history[2] == {"direction": "in", "text": "message 2"}
+    assert history[3] == {
+        "direction": "out",
+        "text": "Test response",
+        "status": DialogStatus.closed,
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_current_status(conductor):
+    """Test getting current dialog status."""
+    # Empty history should return active
+    assert conductor.get_current_status() == DialogStatus.active
+
+    # Setup advisor to return different statuses
+    conductor.advisor.get_tip = AsyncMock(
+        side_effect=[
+            (DialogStatus.active, "reason", 0.5, "stage", "advice"),
+            (DialogStatus.not_qualified, "reason", 0.5, "stage", "advice"),
+        ]
+    )
+    conductor.message_delivery.split_messages = MagicMock(side_effect=lambda x: [x])
+
+    # After first message - should be active
+    await conductor.handle_message("message 1")
+    assert conductor.get_current_status() == DialogStatus.active
+
+    # After second message - should be not_qualified
+    await conductor.handle_message("message 2")
+    assert conductor.get_current_status() == DialogStatus.not_qualified
+
+    # After clearing history - should be active again
+    conductor.clear_history()
+    assert conductor.get_current_status() == DialogStatus.active
+
+
+@pytest.mark.asyncio
+async def test_initial_message_status(conductor):
+    """Test that initial message has correct status."""
+    # Setup initial message
+    conductor.message_delivery.split_messages = MagicMock(side_effect=lambda x: [x])
+    conductor.sales.generate_initial_message = AsyncMock(return_value="Initial message")
+
+    # Start dialog
+    await conductor.start_dialog()
+
+    # Check status in history
+    history = conductor.get_history()
+    assert len(history) == 1
+    assert history[0] == {
+        "direction": "out",
+        "text": "Initial message",
+        "status": DialogStatus.active,
+    }
+    assert conductor.get_current_status() == DialogStatus.active

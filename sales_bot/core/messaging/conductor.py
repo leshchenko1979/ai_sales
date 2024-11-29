@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from core.ai import SalesAdvisor, SalesManager
 from core.messaging.delivery import MessageDelivery
@@ -30,7 +30,7 @@ class DialogConductor:
         self.sales = SalesManager()
         self.advisor = SalesAdvisor(self.sales.provider)
         self.message_delivery = MessageDelivery()
-        self._history: List[Dict[str, str]] = []
+        self._history: List[Dict[str, Union[str, DialogStatus]]] = []
         self._responded_messages: Set[str] = (
             set()
         )  # Track which messages have been responded to
@@ -91,8 +91,14 @@ class DialogConductor:
                 )
 
                 if delivery_result.success:
-                    # Add the chunk to history
-                    self._history.append({"direction": "out", "text": chunk})
+                    # Add the chunk to history with status
+                    self._history.append(
+                        {
+                            "direction": "out",
+                            "text": chunk,
+                            "status": status,  # Add status to history
+                        }
+                    )
                 else:
                     return False, delivery_result.error
 
@@ -204,7 +210,13 @@ class DialogConductor:
             # Only add to history if delivery was successful
             if delivery_result.success:
                 for msg in split_messages:
-                    self._history.append({"direction": "out", "text": msg})
+                    self._history.append(
+                        {
+                            "direction": "out",
+                            "text": msg,
+                            "status": DialogStatus.active,  # Add initial active status
+                        }
+                    )
             else:
                 logger.error(
                     f"Failed to deliver initial message: {delivery_result.error}"
@@ -215,9 +227,21 @@ class DialogConductor:
             logger.error(f"Error starting dialog: {e}", exc_info=True)
             raise
 
-    def get_history(self) -> List[Dict[str, str]]:
+    def get_history(self) -> List[Dict[str, Union[str, DialogStatus]]]:
         """Get current dialog history."""
         return self._history.copy()
+
+    def get_current_status(self) -> DialogStatus:
+        """Get current dialog status from history."""
+        if not self._history:
+            return DialogStatus.active
+
+        # Look for the last AI response with status
+        for msg in reversed(self._history):
+            if msg.get("direction") == "out" and "status" in msg:
+                return msg["status"]
+
+        return DialogStatus.active
 
     def clear_history(self) -> None:
         """Clear dialog history and cancel any ongoing tasks."""
