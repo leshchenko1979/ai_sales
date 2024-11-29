@@ -8,6 +8,8 @@ import logging
 import sys
 from pathlib import Path
 
+import aioconsole  # Добавляем импорт для асинхронного ввода
+
 root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir))
 
@@ -55,23 +57,15 @@ async def main():
 
     while True:
         try:
-            # Get user input
-            user_message = input(f"{Colors.GREEN}You: {Colors.RESET}")
+            # Get user input asynchronously
+            user_message = await aioconsole.ainput(f"{Colors.GREEN}You: {Colors.RESET}")
 
             if not user_message:
                 logger.info("Empty input, exiting...")
                 break
 
-            # Process message
-            is_completed, error = await conductor.handle_message(user_message)
-
-            # Handle dialog end or error
-            if is_completed:
-                logger.info("\nДиалог успешно завершен.")
-                break
-            elif error:
-                logger.error(f"Ошибка в диалоге: {error}")
-                break
+            # Process message in background
+            asyncio.create_task(conductor.handle_message(user_message))
 
         except EOFError:
             logger.info("EOF received, exiting gracefully...")

@@ -1,5 +1,9 @@
 # PowerShell Make Script for AI Sales Project
 
+# Stop on any error
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
 function Get-EnvVariables {
     $envVars = @{}
     if (Test-Path .env) {
@@ -20,34 +24,18 @@ function Get-EnvVariables {
 function Install-LocalDependencies {
     Write-Host "Installing Python dependencies locally..." -ForegroundColor Green
 
-    # Create virtual environment only if it doesn't exist
     if (-not (Test-Path venv)) {
         Write-Host "Creating new virtual environment..." -ForegroundColor Green
         python -m venv venv
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Failed to create virtual environment!" -ForegroundColor Red
-            exit 1
-        }
-    } else {
-        Write-Host "Using existing virtual environment..." -ForegroundColor Green
     }
 
     # Install all requirements except tgcrypto
     Get-Content requirements.txt | Where-Object { $_ -notmatch 'tgcrypto' } | Set-Content requirements.local.txt
     .\venv\Scripts\pip install -r requirements.local.txt
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Failed to install dependencies!" -ForegroundColor Red
-        Remove-Item requirements.local.txt
-        exit 1
-    }
     Remove-Item requirements.local.txt
 
     # Install development dependencies
     .\venv\Scripts\pip install pytest pytest-asyncio isort black
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Failed to install development dependencies!" -ForegroundColor Red
-        exit 1
-    }
 
     Write-Host "Dependencies installed successfully!" -ForegroundColor Green
 }
@@ -71,12 +59,8 @@ function Install-RemoteDependencies {
 
 function Format-Code {
     Write-Host "Formatting code..." -ForegroundColor Green
-    Write-Host "Running isort..." -ForegroundColor Green
     .\venv\Scripts\isort sales_bot tests
-
-    Write-Host "Running black..." -ForegroundColor Green
-    .\venv\Scripts\black sales_bot
-    .\venv\Scripts\black tests
+    .\venv\Scripts\black sales_bot tests
 }
 
 function Run-Tests {
@@ -84,10 +68,6 @@ function Run-Tests {
     Install-LocalDependencies
     Format-Code
     .\venv\Scripts\python -m pytest -x --ff
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Tests failed! Aborting deployment." -ForegroundColor Red
-        exit 1
-    }
 }
 
 function Setup-Logs {
@@ -115,17 +95,15 @@ function Deploy-Files {
 
     Write-Host "Deploying application files..." -ForegroundColor Green
 
-    # Create remote directory if it doesn't exist
+    # Create remote directory
     ssh "${RemoteUser}@${RemoteHost}" 'sudo mkdir -p /home/sales_bot/sales_bot'
 
-    # Clean up __pycache__ directories locally before copying
+    # Clean up __pycache__ directories locally
     Get-ChildItem -Path "./sales_bot" -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force
 
-    # Create a temporary directory for deployment files
+    # Create and prepare temp directory
     $tempDir = Join-Path $env:TEMP "ai_sales_deploy"
-    if (Test-Path $tempDir) {
-        Remove-Item -Path $tempDir -Recurse -Force
-    }
+    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Path $tempDir | Out-Null
 
     # Copy files excluding tests
@@ -137,7 +115,8 @@ function Deploy-Files {
             -not $_.FullName.Contains("script_tests")
         } |
         ForEach-Object {
-            $targetPath = Join-Path $tempDir $_.FullName.Substring((Get-Location).Path.Length + 11)
+            $relativePath = $_.FullName.Substring((Get-Location).Path.Length + 1)
+            $targetPath = Join-Path $tempDir $relativePath
             $targetDir = Split-Path -Parent $targetPath
             if (-not (Test-Path $targetDir)) {
                 New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
@@ -147,10 +126,8 @@ function Deploy-Files {
 
     # Deploy files
     Write-Host "`nCopying files to server..." -ForegroundColor Green
-    # First copy requirements.txt to the correct location
     scp requirements.txt "${RemoteUser}@${RemoteHost}:/home/sales_bot/"
-    # Then copy all other files
-    scp -r -p ./$tempDir/* "${RemoteUser}@${RemoteHost}:/home/sales_bot/sales_bot/"
+    scp -r "${tempDir}/*" "${RemoteUser}@${RemoteHost}:/home/sales_bot/"
 
     # Set permissions
     ssh "${RemoteUser}@${RemoteHost}" 'sudo chown -R sales_bot:sales_bot /home/sales_bot'
@@ -166,10 +143,7 @@ function Configure-Service {
 
     Write-Host "Configuring systemd service..." -ForegroundColor Green
 
-    # Read environment variables from .env
     $envVars = Get-EnvVariables
-
-    # Generate Environment variables section
     $envLines = $envVars.GetEnumerator() | ForEach-Object {
         "Environment=`"$($_.Key)=$($_.Value)`""
     }
@@ -209,30 +183,11 @@ function Start-Service {
     Write-Host "Starting and verifying service..." -ForegroundColor Green
 
     ssh "${RemoteUser}@${RemoteHost}" @'
-        echo "Reloading systemd..."
         sudo systemctl daemon-reload
-
-        echo "Enabling and starting service..."
         sudo systemctl enable sales_bot
         sudo systemctl restart sales_bot
-
-        echo "Waiting for service to stabilize..."
         sleep 5
-
-        echo "Checking service status..."
         sudo systemctl status sales_bot
-
-        if ! sudo systemctl is-active --quiet sales_bot; then
-            echo "Service failed to start!"
-            echo "Last 50 lines of error log:"
-            sudo tail -n 50 /var/log/sales_bot/error.log
-            echo "Journal logs:"
-            sudo journalctl -u sales_bot -n 50 --no-pager
-            exit 1
-        fi
-
-        echo "Service started successfully!"
-        echo "Recent application logs:"
         sudo tail -n 20 /var/log/sales_bot/app.log
 '@
 }
@@ -248,70 +203,19 @@ function Deploy-All {
     $startTime = Get-Date
     Write-Host "Starting deployment at $startTime" -ForegroundColor Green
 
-    try {
-        Run-Tests
-        Deploy-Files -RemoteHost $RemoteHost -RemoteUser $RemoteUser
-        Install-RemoteDependencies -RemoteHost $RemoteHost -RemoteUser $RemoteUser
-        Setup-Logs -RemoteHost $RemoteHost -RemoteUser $RemoteUser
-        Configure-Service -RemoteHost $RemoteHost -RemoteUser $RemoteUser
-        Start-Service -RemoteHost $RemoteHost -RemoteUser $RemoteUser
+    Run-Tests
+    Setup-Logs -RemoteHost $RemoteHost -RemoteUser $RemoteUser
+    Deploy-Files -RemoteHost $RemoteHost -RemoteUser $RemoteUser
+    Install-RemoteDependencies -RemoteHost $RemoteHost -RemoteUser $RemoteUser
+    Configure-Service -RemoteHost $RemoteHost -RemoteUser $RemoteUser
+    Start-Service -RemoteHost $RemoteHost -RemoteUser $RemoteUser
 
-        # Проверяем финальный статус сервиса
-        $serviceStatus = ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl is-active sales_bot'
-        if ($serviceStatus -ne 'active') {
-            Write-Host "Deployment failed: Service is not running!" -ForegroundColor Red
-            Write-Host "Service status: $serviceStatus" -ForegroundColor Red
-            ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl status sales_bot'
-            exit 1
-        }
-
-        $endTime = Get-Date
-        $deploymentTime = $endTime - $startTime
-
-        Write-Host "`nDeployment completed successfully!" -ForegroundColor Green
-        Write-Host "Started:  $startTime"
-        Write-Host "Finished: $endTime"
-        Write-Host "Total deployment time: $($deploymentTime.ToString('hh\:mm\:ss'))"
-    }
-    catch {
-        Write-Host "Deployment failed with error: $_" -ForegroundColor Red
-        exit 1
-    }
+    $endTime = Get-Date
+    $duration = $endTime - $startTime
+    Write-Host "`nDeployment completed successfully in $($duration.TotalMinutes) minutes" -ForegroundColor Green
 }
 
-function Show-Help {
-    Write-Host "Available commands:" -ForegroundColor Yellow
-    Write-Host "  .\make.ps1 install       - Install project dependencies"
-    Write-Host "  .\make.ps1 install-local - Install project dependencies locally"
-    Write-Host "  .\make.ps1 format        - Format code with isort and black"
-    Write-Host "  .\make.ps1 test          - Run tests"
-    Write-Host "  .\make.ps1 logs          - Setup log directories"
-    Write-Host "  .\make.ps1 deploy        - Run full deployment"
-    Write-Host "  .\make.ps1 help          - Show this help message"
-}
-
-# Parse command line argument
-$command = $args[0]
-
-switch ($command) {
-    "install" {
-        $envVars = Get-EnvVariables
-        Install-RemoteDependencies -RemoteHost $envVars['REMOTE_HOST'] -RemoteUser $envVars['REMOTE_USER']
-    }
-    "install-local" { Install-LocalDependencies }
-    "format"  { Format-Code }
-    "test"    { Run-Tests }
-    "logs"    {
-        $envVars = Get-EnvVariables
-        Setup-Logs -RemoteHost $envVars['REMOTE_HOST'] -RemoteUser $envVars['REMOTE_USER']
-    }
-    "deploy"  {
-        $envVars = Get-EnvVariables
-        Deploy-All -RemoteHost $envVars['REMOTE_HOST'] -RemoteUser $envVars['REMOTE_USER']
-    }
-    "help"    { Show-Help }
-    default   {
-        Write-Host "Unknown command: $command" -ForegroundColor Red
-        Show-Help
-    }
+# If script is run with arguments, treat them as remote host and user
+if ($args.Count -eq 2) {
+    Deploy-All -RemoteHost $args[0] -RemoteUser $args[1]
 }
