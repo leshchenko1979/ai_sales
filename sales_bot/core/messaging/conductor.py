@@ -5,7 +5,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from core.ai import SalesAdvisor, SalesManager
-from core.messaging.delivery import MessageDelivery
+from core.messaging.delivery import DeliveryInterrupted, MessageDelivery
 from core.messaging.models import DialogStatus
 
 logger = logging.getLogger(__name__)
@@ -147,6 +147,10 @@ class DialogConductor:
 
         except asyncio.CancelledError:
             raise
+        except DeliveryInterrupted:
+            # Silently handle interruption due to new message
+            logger.info("Message delivery interrupted by new message")
+            return False, None
         except Exception as e:
             logger.error(f"Error processing message queue: {e}", exc_info=True)
             return False, str(e)
@@ -185,23 +189,31 @@ class DialogConductor:
         status, response = response_data
         split_messages = self.message_delivery.split_messages(response)
 
-        for chunk in split_messages:
-            delivery_result = await self.message_delivery.deliver_messages(
-                dialog_id=self._dialog_id,
-                messages=[chunk],
-                send_func=self._send_func,
-            )
+        try:
+            for chunk in split_messages:
+                delivery_result = await self.message_delivery.deliver_messages(
+                    dialog_id=self._dialog_id,
+                    messages=[chunk],
+                    send_func=self._send_func,
+                )
 
-            if not delivery_result.success:
-                raise RuntimeError(delivery_result.error)
+                if not delivery_result.success:
+                    if delivery_result.error:
+                        raise RuntimeError(
+                            f"Message delivery failed: {delivery_result.error}"
+                        )
+                    return  # Silent return on interruption
 
-            self._history.append(
-                {
-                    "direction": "out",
-                    "text": chunk,
-                    "status": status,
-                }
-            )
+                self._history.append(
+                    {
+                        "direction": "out",
+                        "text": chunk,
+                        "status": status,
+                    }
+                )
+        except DeliveryInterrupted:
+            logger.info("Message delivery interrupted by new message")
+            return
 
     def _is_dialog_complete(self, status: DialogStatus) -> bool:
         """Check if dialog is complete based on status."""

@@ -17,6 +17,10 @@ TYPING_DELAY = 1.5  # seconds
 CHAR_DELAY = 0.05  # seconds per character
 
 
+class DeliveryInterrupted(RuntimeError):
+    """Raised when message delivery is interrupted."""
+
+
 class MessageDelivery:
     """Handles message delivery with realistic typing delays."""
 
@@ -46,6 +50,9 @@ class MessageDelivery:
                 )
                 return DeliveryResult(success=success)
 
+        except asyncio.CancelledError:
+            logger.info("Message delivery interrupted")
+            raise DeliveryInterrupted()
         except Exception as e:
             logger.error(f"Message delivery failed: {e}", exc_info=True)
             await self._cancel_current_delivery()

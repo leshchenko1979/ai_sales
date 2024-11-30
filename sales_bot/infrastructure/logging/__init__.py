@@ -45,5 +45,10 @@ def setup_logging():
     logging.getLogger("pyrogram").setLevel(logging.WARNING)
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 
+    # Disable noisy HTTP client logs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+
     # Log start
     root_logger.info("Logging system initialized")
