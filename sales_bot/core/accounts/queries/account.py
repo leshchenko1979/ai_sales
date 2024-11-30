@@ -1,7 +1,7 @@
 """Account queries."""
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from core.accounts.models import Account, AccountStatus
 from core.db.base import BaseQueries
@@ -50,6 +50,20 @@ class AccountQueries(BaseQueries):
             logger.error(f"Failed to get all accounts: {e}")
             return []
 
+    async def get_active_accounts(self) -> List[Account]:
+        """Get all active accounts."""
+        try:
+            query = (
+                select(Account)
+                .where(Account.status == AccountStatus.active)
+                .order_by(Account.last_used_at.asc().nullsfirst())
+            )
+            result = await self.session.execute(query)
+            return list(result.scalars().all())
+        except Exception as e:
+            logger.error(f"Failed to get active accounts: {e}")
+            return []
+
     async def create_account(self, phone: str) -> Optional[Account]:
         """Create new account."""
         try:
@@ -85,15 +99,22 @@ class AccountQueries(BaseQueries):
             return None
 
     async def get_available_account(self) -> Optional[Account]:
-        """Get available account."""
+        """Get available account for messaging."""
         try:
             query = (
                 select(Account)
-                .where(Account.status == AccountStatus.active)
-                .order_by(Account.last_used_at.asc())
+                .where(
+                    Account.status == AccountStatus.active,
+                    Account.session_string.is_not(None),  # Has session
+                    (Account.daily_messages < 40)
+                    | (Account.daily_messages.is_(None)),  # Under message limit
+                )
+                .order_by(
+                    Account.last_used_at.asc().nullsfirst()
+                )  # Prefer accounts not used recently
             )
             result = await self.session.execute(query)
             return result.scalar_one_or_none()
         except Exception as e:
-            logger.error(f"Failed to get available account: {e}")
+            logger.error(f"Failed to get available account: {e}", exc_info=True)
             return None

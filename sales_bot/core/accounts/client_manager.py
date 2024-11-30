@@ -4,10 +4,11 @@ import asyncio
 import logging
 from typing import Dict, Optional
 
-from core.accounts.queries.account import AccountQueries
 from core.db import with_queries
 
 from .client import AccountClient
+from .models import AccountStatus
+from .queries.account import AccountQueries
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,12 @@ class ClientManager:
             self._lock = asyncio.Lock()
             ClientManager._initialized = True
 
+    @with_queries(AccountQueries)
     async def get_client(
-        self, phone: str, session_string: Optional[str] = None
+        self,
+        phone: str,
+        session_string: Optional[str] = None,
+        queries: Optional[AccountQueries] = None,
     ) -> Optional[AccountClient]:
         """
         Get or create client for phone number.
@@ -40,19 +45,36 @@ class ClientManager:
         Args:
             phone: Phone number
             session_string: Optional session string for existing sessions
+            queries: Optional AccountQueries instance
 
         Returns:
             AccountClient if successful, None otherwise
         """
         async with self._lock:
-            if phone not in self._clients:
-                client = AccountClient(phone, session_string)
-                if await client.start():
-                    self._clients[phone] = client
-                else:
-                    await client.stop()
-                    return None
-            return self._clients.get(phone)
+            logger.debug(f"Getting client for {phone}")
+
+            if phone in self._clients:
+                logger.debug(f"Returning existing client for {phone}")
+                return self._clients[phone]
+
+            # Check account status if queries provided
+            check_auth = True
+            if queries:
+                account = await queries.get_account_by_phone(phone)
+                if account and account.status != AccountStatus.active:
+                    logger.debug(f"Account {phone} is not active, skipping auth check")
+                    check_auth = False
+
+            # Create new client
+            client = AccountClient(phone, session_string)
+            if await client.start(check_auth=check_auth):
+                logger.debug(f"Successfully created client for {phone}")
+                self._clients[phone] = client
+                return client
+
+            logger.debug(f"Failed to create client for {phone}")
+            await client.stop()
+            return None
 
     @with_queries(AccountQueries)
     async def release_client(self, phone: str, queries: AccountQueries):
@@ -61,25 +83,33 @@ class ClientManager:
 
         Args:
             phone: Phone number to release
+            queries: AccountQueries instance
         """
         async with self._lock:
             if phone in self._clients:
                 client = self._clients[phone]
+                logger.debug(f"Releasing client for {phone}")
+
                 # Save session string if it has changed
                 if client.session_string:
                     account = await queries.get_account_by_phone(phone)
                     if account and account.session_string != client.session_string:
+                        logger.debug(f"Updating session string for {phone}")
                         account.session_string = client.session_string
                         queries.session.add(account)
+
                 await client.stop()
                 del self._clients[phone]
+                logger.debug(f"Client for {phone} released")
 
     async def stop_all(self):
         """Stop all active clients."""
         async with self._lock:
+            logger.debug(f"Stopping all clients ({len(self._clients)} active)")
             for client in self._clients.values():
                 await client.stop()
             self._clients.clear()
+            logger.debug("All clients stopped")
 
     def __len__(self) -> int:
         """Get number of active clients."""

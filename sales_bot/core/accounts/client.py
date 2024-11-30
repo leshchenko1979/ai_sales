@@ -27,14 +27,13 @@ class AccountClient:
         self.session_string = session_string
         self.client: Optional[Client] = None
         self._initialized = False
+        self._connected = False
+        self.phone_code_hash = None
 
-    async def start(self) -> bool:
-        """Start client."""
+    async def _create_client(self) -> bool:
+        """Create Pyrogram client instance."""
         try:
-            if self._initialized and self.client:
-                return True
-
-            # Create client instance
+            logger.debug(f"Creating client instance for {self.phone}")
             self.client = Client(
                 name=f"account_{self.phone}",
                 api_id=API_ID,
@@ -43,21 +42,66 @@ class AccountClient:
                 phone_number=None if self.session_string else self.phone,
                 in_memory=True,
             )
+            return True
+        except Exception as e:
+            logger.error(f"Error creating client for {self.phone}: {e}", exc_info=True)
+            return False
 
-            # Start client
-            await self.client.start()
-            self._initialized = True
+    async def _connect_client(self) -> bool:
+        """Connect client to Telegram."""
+        try:
+            if self._connected:
+                logger.debug(f"Client {self.phone} is already connected")
+                return True
+
+            logger.debug(f"Connecting client for {self.phone}")
+            await self.client.connect()
+            self._connected = True
+            return True
+        except Exception as e:
+            logger.error(
+                f"Error connecting client for {self.phone}: {e}", exc_info=True
+            )
+            return False
+
+    async def start(self, check_auth: bool = True) -> bool:
+        """
+        Start client.
+
+        Args:
+            check_auth: If True, verify authorization status.
+                      If False, just create and connect client without checking auth.
+        """
+        try:
+            if self._initialized and self.client:
+                return True
+
+            logger.debug(f"Starting client for {self.phone} (check_auth={check_auth})")
+
+            # Create client instance
+            if not await self._create_client():
+                return False
+
+            # Connect to Telegram
+            if not await self._connect_client():
+                return False
+
+            if not check_auth:
+                logger.debug(f"Skipping auth check for {self.phone}")
+                self._initialized = True
+                return True
 
             # Verify session if exists
             if self.session_string:
                 try:
                     me = await self.client.get_me()
-                    logger.info(f"Successfully connected to account {me.phone_number}")
+                    logger.debug(f"Successfully connected to account {me.phone_number}")
                 except Exception as e:
                     logger.error(f"Failed to verify session: {e}")
                     await self.stop()
                     return False
 
+            self._initialized = True
             return True
 
         except (AuthKeyDuplicated, AuthKeyUnregistered) as e:
@@ -72,19 +116,48 @@ class AccountClient:
 
     async def stop(self):
         """Stop client."""
-        if self.client:
-            try:
-                await self.client.stop()
-            except Exception as e:
-                logger.error(f"Error stopping client for {self.phone}: {e}")
-            finally:
-                self.client = None
-                self._initialized = False
+        if not self.client:
+            logger.debug(f"No client instance for {self.phone}")
+            return
+
+        try:
+            if self._connected:
+                logger.debug(f"Disconnecting client for {self.phone}")
+                try:
+                    await self.client.disconnect()
+                except Exception as e:
+                    if "already terminated" in str(e):
+                        logger.debug(f"Client {self.phone} is already disconnected")
+                    else:
+                        logger.error(f"Error disconnecting client: {e}")
+                self._connected = False
+
+            if hasattr(self.client, "terminate"):
+                logger.debug(f"Terminating client for {self.phone}")
+                try:
+                    await self.client.terminate()
+                except Exception as e:
+                    if "already terminated" in str(e):
+                        logger.debug(f"Client {self.phone} is already terminated")
+                    else:
+                        logger.error(f"Error terminating client: {e}")
+
+        except Exception as e:
+            logger.error(f"Error stopping client for {self.phone}: {e}")
+        finally:
+            self.client = None
+            self._initialized = False
+            self._connected = False
 
     async def send_code(self) -> bool:
         """Send authorization code."""
         try:
-            if not self.client or not self._initialized:
+            if not self.client:
+                logger.error("Client not initialized")
+                return False
+
+            # Make sure client is connected
+            if not await self._connect_client():
                 return False
 
             # Send code
