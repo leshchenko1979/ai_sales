@@ -19,3 +19,4 @@ venv
 *.session
 sales_bot.session
 sales_bot/logs/sales_bot.log
+sales_bot/exports/

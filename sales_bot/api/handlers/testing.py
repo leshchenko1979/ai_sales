@@ -6,6 +6,7 @@ from typing import Dict, List
 from core.messaging.conductor import DialogConductor
 from core.messaging.enums import DialogStatus
 from core.telegram.client import app
+from infrastructure.config import ANALYSIS_GROUP
 from pyrogram import Client, filters
 from pyrogram.raw import functions
 from pyrogram.types import Message
@@ -16,8 +17,6 @@ logger = logging.getLogger(__name__)
 test_dialogs: Dict[int, DialogConductor] = {}
 # Store dialog messages for analysis
 dialog_messages: Dict[int, List[Message]] = {}
-# Testing group username
-TESTING_GROUP = "@sales_bot_analysis"
 
 # Mapping from dialog status to result tag
 STATUS_TO_TAG = {
@@ -94,6 +93,10 @@ async def cmd_stop_dialog(client: Client, message: Message):
 async def on_test_message(client: Client, message: Message):
     """Handle messages in test dialog."""
     user_id = message.from_user.id
+
+    # Ignore messages from the bot itself
+    if message.from_user.is_bot:
+        return
 
     if user_id not in test_dialogs:
         if not message.text.startswith("/"):
@@ -245,7 +248,7 @@ async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
             logger.error("Empty messages list")
             return ""
 
-        group = await client.get_chat(TESTING_GROUP)
+        group = await client.get_chat(ANALYSIS_GROUP)
         if not group or not group.id:
             logger.error("Failed to get testing group info")
             return ""
