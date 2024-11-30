@@ -56,8 +56,7 @@ function Install-RemoteDependencies {
     $commands = @(
         'cd /home/sales_bot',
         'sudo -u sales_bot python3 -m venv venv',
-        'sudo -u sales_bot venv/bin/pip install -r requirements.txt',
-        'sudo -u sales_bot venv/bin/pip install pytest'
+        'sudo -u sales_bot venv/bin/pip install -r requirements.txt'
     ) -join ' && '
 
     ssh "${RemoteUser}@${RemoteHost}" $commands
@@ -88,7 +87,10 @@ function Setup-Logs {
 
     $commands = @(
         'sudo mkdir -p /var/log/sales_bot',
-        'sudo chown -R sales_bot:sales_bot /var/log/sales_bot'
+        'sudo chown -R sales_bot:sales_bot /var/log/sales_bot',
+        'sudo chmod -R 755 /var/log/sales_bot',
+        'sudo touch /var/log/sales_bot/app.log /var/log/sales_bot/error.log',
+        'sudo chown sales_bot:sales_bot /var/log/sales_bot/app.log /var/log/sales_bot/error.log'
     ) -join ' && '
 
     ssh "${RemoteUser}@${RemoteHost}" $commands
@@ -167,8 +169,9 @@ After=network.target postgresql.service
 Type=simple
 User=sales_bot
 WorkingDirectory=/home/sales_bot/sales_bot
+Environment=PYTHONPATH=/home/sales_bot
 $envSection
-ExecStart=/home/sales_bot/venv/bin/python /home/sales_bot/sales_bot/main.py
+ExecStart=/home/sales_bot/venv/bin/python -u main.py
 StandardOutput=append:/var/log/sales_bot/app.log
 StandardError=append:/var/log/sales_bot/error.log
 Restart=always
