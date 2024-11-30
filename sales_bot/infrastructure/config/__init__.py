@@ -89,3 +89,6 @@ PROMPTS_PATH: Final[Path] = ROOT_DIR / "core" / "ai" / "sales" / "prompts.yaml"
 
 # Testing
 TESTER_TELEGRAM_IDS: Final[list[int]] = []
+
+# Notifications
+LESHCHENKO_CHAT_ID: Final[int] = 133526395

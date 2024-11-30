@@ -1,20 +1,27 @@
 """Account notifications."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.db import with_queries
-from infrastructure.config import BOT_TOKEN
+from infrastructure.config import BOT_TOKEN, LESHCHENKO_CHAT_ID
 from pyrogram import Client
 
-from .models import Account
+from .models import Account, AccountStatus
 from .queries.account import AccountQueries
 
 logger = logging.getLogger(__name__)
 
 
+def to_naive_utc(dt: datetime) -> datetime:
+    """Convert datetime to naive UTC."""
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 class AccountNotifier:
-    """Account notifier."""
+    """Account status updates and notifications."""
 
     def __init__(self):
         """Initialize notifier."""
@@ -30,24 +37,28 @@ class AccountNotifier:
     async def notify_flood_wait(
         self, account: Account, flood_wait_until: datetime, queries: AccountQueries
     ) -> bool:
-        """Notify about flood wait."""
+        """Update account flood wait status and notify."""
         try:
-            # Update account
-            account.flood_wait_until = flood_wait_until
-            account.updated_at = datetime.utcnow()
-            queries.session.add(account)
+            await queries.update_account(
+                account.phone, flood_wait_until=to_naive_utc(flood_wait_until)
+            )
+
+            # Log the event
+            logger.info(
+                f"Account {account.phone} is in flood wait until {flood_wait_until}"
+            )
 
             # Send notification
             await self.bot.send_message(
-                chat_id=account.id,
-                text=f"Account {account.phone} is in flood wait "
+                chat_id=LESHCHENKO_CHAT_ID,
+                text=f"⚠️ Account {account.phone} is in flood wait "
                 f"until {flood_wait_until}",
             )
             return True
 
         except Exception as e:
             logger.error(
-                f"Error notifying flood wait for {account.phone}: {e}", exc_info=True
+                f"Error handling flood wait for {account.phone}: {e}", exc_info=True
             )
             return False
 
@@ -55,22 +66,22 @@ class AccountNotifier:
     async def notify_account_blocked(
         self, account: Account, queries: AccountQueries
     ) -> bool:
-        """Notify about account block."""
+        """Update account blocked status and notify."""
         try:
-            # Update account
-            account.status = "blocked"
-            account.updated_at = datetime.utcnow()
-            queries.session.add(account)
+            await queries.update_account(account.phone, status=AccountStatus.blocked)
+
+            # Log the event
+            logger.warning(f"Account {account.phone} has been blocked")
 
             # Send notification
             await self.bot.send_message(
-                chat_id=account.id,
-                text=f"Account {account.phone} has been blocked",
+                chat_id=LESHCHENKO_CHAT_ID,
+                text=f"🚫 Account {account.phone} has been blocked",
             )
             return True
 
         except Exception as e:
             logger.error(
-                f"Error notifying account block for {account.phone}: {e}", exc_info=True
+                f"Error handling blocked status for {account.phone}: {e}", exc_info=True
             )
             return False

@@ -1,7 +1,7 @@
 """Account safety checks."""
 
 import logging
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 
 from core.db import with_queries
 from infrastructure.config import (
@@ -15,6 +15,11 @@ from .models import Account
 from .queries.account import AccountQueries
 
 logger = logging.getLogger(__name__)
+
+
+def get_utc_now() -> datetime:
+    """Get current UTC time as naive datetime."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class AccountSafety:
@@ -38,7 +43,7 @@ class AccountSafety:
         # Check hourly limit
         if account.last_used_at:
             messages_last_hour = 0
-            hour_ago = datetime.utcnow() - timedelta(hours=1)
+            hour_ago = get_utc_now() - timedelta(hours=1)
 
             if account.last_used_at > hour_ago:
                 messages_last_hour = account.daily_messages
@@ -52,7 +57,7 @@ class AccountSafety:
 
             # Check minimum delay
             if (
-                datetime.utcnow() - account.last_used_at
+                get_utc_now() - account.last_used_at
             ).total_seconds() < MIN_MESSAGE_DELAY:
                 logger.warning(f"Message delay not passed for {account.phone}")
                 return False
@@ -62,7 +67,7 @@ class AccountSafety:
     @staticmethod
     def get_next_reset_time() -> datetime:
         """Get next daily limit reset time."""
-        now = datetime.utcnow()
+        now = get_utc_now()
         reset_time = time(hour=RESET_HOUR_UTC)
         next_reset = datetime.combine(now.date(), reset_time)
 

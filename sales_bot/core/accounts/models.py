@@ -13,7 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from utils.phone import normalize_phone
 
 if TYPE_CHECKING:
-    from core.messages.models import Dialog
+    from core.messaging.models import Dialog
 
 
 class AccountStatus(str, Enum):

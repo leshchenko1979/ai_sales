@@ -34,8 +34,8 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
     """
     Full account lifecycle test:
     1. Create account
-    2. Request authorization code
-    3. Authorize
+    2. Request authorization code (only if not active)
+    3. Authorize (only if not active)
     4. Check status
     5. Check flood wait
     6. Check monitoring
@@ -51,6 +51,7 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
 
         load_dotenv()
 
+        from core.accounts.client import AccountClient
         from core.accounts.manager import AccountManager
         from core.accounts.models import AccountStatus
         from core.accounts.monitoring import AccountMonitor
@@ -64,7 +65,7 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
         monitor = AccountMonitor()
 
         # Use test number if not specified
-        phone = phone or "79306974071"
+        phone = phone or "79690255770"
         logger.info(f"Testing account {phone}")
 
         # 1. Create account
@@ -74,8 +75,8 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
         assert account.phone == phone, f"Wrong phone number: {account.phone}"
         logger.info(f"Created account {account}")
 
-        # 2. Request authorization code
-        if account.status == AccountStatus.new:
+        # 2. Request authorization code if not active
+        if account.status != AccountStatus.active:
             logger.info("2. Requesting authorization code...")
             code_requested = await manager.request_code(phone)
             assert code_requested, "Failed to request code"
@@ -91,6 +92,15 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
             code = input("Enter authorization code: ").strip()
             authorized = await manager.authorize_account(phone, code)
             assert authorized, "Failed to authorize account"
+        else:
+            logger.info("Account is already active, verifying session...")
+            # Try to connect using existing session - should not request code
+            client = AccountClient(phone, account.session_string)
+            assert await client.start(), "Failed to connect with existing session"
+            logger.info(
+                "Successfully connected with existing session (no code required)"
+            )
+            await client.stop()
 
         # 4. Check status
         logger.info("4. Checking status...")
@@ -107,8 +117,8 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
         logger.info("6. Checking monitoring...")
         stats = await monitor.check_accounts()
         assert stats is not None, "Failed to get monitoring stats"
-        assert stats.total > 0, "No accounts found"
-        assert stats.active > 0, "No active accounts"
+        assert stats["total"] > 0, "No accounts found"
+        assert stats["active"] > 0, "No active accounts"
 
         logger.info("✅ All tests passed successfully!")
         return True

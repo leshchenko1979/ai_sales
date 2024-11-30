@@ -7,7 +7,7 @@ from typing import Optional
 from core.db import with_queries
 from utils.phone import normalize_phone
 
-from .client import AccountClient
+from .client_manager import ClientManager
 from .models import Account, AccountStatus
 from .queries.account import AccountQueries
 
@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 class AccountManager:
     """Account manager."""
+
+    def __init__(self):
+        """Initialize manager."""
+        self.client_manager = ClientManager()
 
     @with_queries(AccountQueries)
     async def get_or_create_account(
@@ -51,9 +55,16 @@ class AccountManager:
                 logger.error(f"Account {phone} not found")
                 return False
 
-            # Create client
-            client = AccountClient(phone)
-            if not await client.start():
+            # Don't request code for active accounts
+            if account.status == AccountStatus.active:
+                logger.warning(
+                    f"Account {phone} is already active, code request blocked"
+                )
+                return False
+
+            # Get client
+            client = await self.client_manager.get_client(phone)
+            if not client:
                 return False
 
             try:
@@ -68,10 +79,11 @@ class AccountManager:
                 return True
 
             finally:
-                await client.stop()
+                await self.client_manager.release_client(phone)
 
         except Exception as e:
             logger.error(f"Error requesting code for {phone}: {e}", exc_info=True)
+            await self.client_manager.release_client(phone)
             return False
 
     @with_queries(AccountQueries)
@@ -88,9 +100,20 @@ class AccountManager:
                 logger.error(f"Account {phone} not found")
                 return False
 
-            # Create client
-            client = AccountClient(phone)
-            if not await client.start():
+            # For active accounts, just verify connection
+            if account.status == AccountStatus.active:
+                client = await self.client_manager.get_client(
+                    phone, account.session_string
+                )
+                success = client is not None
+                if client:
+                    await self.client_manager.release_client(phone)
+                return success
+
+            # Get client (should have phone_code_hash from request_code)
+            client = await self.client_manager.get_client(phone)
+            if not client:
+                logger.error(f"No client found for {phone}")
                 return False
 
             try:
@@ -107,10 +130,11 @@ class AccountManager:
                 return True
 
             finally:
-                await client.stop()
+                await self.client_manager.release_client(phone)
 
         except Exception as e:
             logger.error(f"Error authorizing {phone}: {e}", exc_info=True)
+            await self.client_manager.release_client(phone)
             return False
 
     @with_queries(AccountQueries)
@@ -122,12 +146,7 @@ class AccountManager:
             if not accounts:
                 return None
 
-            # Return first available account
-            for account in accounts:
-                if account.can_be_used:
-                    return account
-
-            return None
+            return next((account for account in accounts if account.can_be_used), None)
 
         except Exception as e:
             logger.error(f"Error getting available account: {e}", exc_info=True)

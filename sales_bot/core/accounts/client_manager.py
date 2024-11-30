@@ -1,166 +1,86 @@
+"""Client manager for Telegram accounts."""
+
 import asyncio
 import logging
 from typing import Dict, Optional
 
+from core.accounts.queries.account import AccountQueries
+from core.db import with_queries
+
 from .client import AccountClient
-from .models import Account
 
 logger = logging.getLogger(__name__)
 
 
-class AccountClientManager:
-    """
-    Internal component for managing Telegram client connections.
-    Maintains persistent connections and handles client lifecycle.
-    Implements Singleton pattern to ensure only one instance exists.
-    """
+class ClientManager:
+    """Centralized manager for Telegram clients."""
 
     _instance = None
-    _lock = asyncio.Lock()
+    _initialized = False
 
     def __new__(cls):
+        """Ensure single instance creation."""
         if cls._instance is None:
-            cls._instance = super(AccountClientManager, cls).__new__(cls)
-            # Initialize instance attributes
-            cls._instance._initialized = False
+            cls._instance = super().__new__(cls)
         return cls._instance
 
-    async def __aenter__(self):
-        """Support for async context manager"""
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Cleanup when used as context manager"""
-        await self.cleanup()
-
     def __init__(self):
-        """
-        Initialize the manager if it hasn't been initialized yet.
-        This method might be called multiple times due to singleton pattern,
-        so we need to guard against multiple initializations.
-        """
-        if not getattr(self, "_initialized", False):
-            self._clients: Dict[int, AccountClient] = {}
-            self._connection_tasks: Dict[int, asyncio.Task] = {}
-            self._instance_lock = asyncio.Lock()  # Lock for instance methods
-            self._initialized = True
+        """Initialize manager."""
+        if not ClientManager._initialized:
+            self._clients: Dict[str, AccountClient] = {}
+            self._lock = asyncio.Lock()
+            ClientManager._initialized = True
 
-    @classmethod
-    async def get_instance(cls) -> "AccountClientManager":
+    async def get_client(
+        self, phone: str, session_string: Optional[str] = None
+    ) -> Optional[AccountClient]:
         """
-        Get singleton instance of AccountClientManager.
-        This method is not strictly necessary with __new__ implementation,
-        but provides explicit async-safe way to get instance.
+        Get or create client for phone number.
 
-        :return: AccountClientManager instance
+        Args:
+            phone: Phone number
+            session_string: Optional session string for existing sessions
+
+        Returns:
+            AccountClient if successful, None otherwise
         """
-        async with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls()
-            return cls._instance
-
-    async def get_client(self, account: Account) -> Optional[AccountClient]:
-        """
-        Get or create a client for the account.
-        Ensures only one client exists per account.
-
-        :param account: Account to get/create client for
-        :return: AccountClient instance or None if creation failed
-        """
-        async with self._instance_lock:
-            if account.id in self._clients:
-                return self._clients[account.id]
-
-            try:
-                client = AccountClient(account)
-                if await client.connect():
-                    self._clients[account.id] = client
-                    # Start connection maintenance task
-                    self._start_connection_maintenance(account.id, client)
-                    return client
+        async with self._lock:
+            if phone not in self._clients:
+                client = AccountClient(phone, session_string)
+                if await client.start():
+                    self._clients[phone] = client
                 else:
-                    logger.error(f"Failed to connect client for account {account.id}")
+                    await client.stop()
                     return None
-            except Exception as e:
-                logger.error(f"Error creating client for account {account.id}: {e}")
-                return None
+            return self._clients.get(phone)
 
-    async def disconnect_client(self, account_id: int) -> None:
+    @with_queries(AccountQueries)
+    async def release_client(self, phone: str, queries: AccountQueries):
         """
-        Disconnect and remove client for the account.
+        Release client for phone number.
 
-        :param account_id: ID of the account to disconnect
+        Args:
+            phone: Phone number to release
         """
-        async with self._instance_lock:
-            if account_id in self._clients:
-                # Cancel connection maintenance task
-                if account_id in self._connection_tasks:
-                    self._connection_tasks[account_id].cancel()
-                    try:
-                        await self._connection_tasks[account_id]
-                    except asyncio.CancelledError:
-                        pass
-                    del self._connection_tasks[account_id]
+        async with self._lock:
+            if phone in self._clients:
+                client = self._clients[phone]
+                # Save session string if it has changed
+                if client.session_string:
+                    account = await queries.get_account_by_phone(phone)
+                    if account and account.session_string != client.session_string:
+                        account.session_string = client.session_string
+                        queries.session.add(account)
+                await client.stop()
+                del self._clients[phone]
 
-                # Disconnect client
-                client = self._clients[account_id]
-                try:
-                    if client.client and client.client.is_connected:
-                        await client.client.disconnect()
-                except Exception as e:
-                    logger.error(
-                        f"Error disconnecting client for account {account_id}: {e}"
-                    )
+    async def stop_all(self):
+        """Stop all active clients."""
+        async with self._lock:
+            for client in self._clients.values():
+                await client.stop()
+            self._clients.clear()
 
-                del self._clients[account_id]
-
-    def _start_connection_maintenance(
-        self, account_id: int, client: AccountClient
-    ) -> None:
-        """
-        Start background task for maintaining client connection.
-
-        :param account_id: ID of the account
-        :param client: AccountClient instance to maintain
-        """
-        if account_id in self._connection_tasks:
-            self._connection_tasks[account_id].cancel()
-
-        task = asyncio.create_task(self._maintain_connection(account_id, client))
-        self._connection_tasks[account_id] = task
-
-    async def _maintain_connection(
-        self, account_id: int, client: AccountClient
-    ) -> None:
-        """
-        Background task that maintains client connection.
-        Automatically reconnects if connection is lost.
-
-        :param account_id: ID of the account
-        :param client: AccountClient instance to maintain
-        """
-        while True:
-            try:
-                if not client.client or not client.client.is_connected:
-                    logger.info(f"Reconnecting client for account {account_id}")
-                    await client.connect()
-                await asyncio.sleep(60)  # Check connection every minute
-            except asyncio.CancelledError:
-                logger.info(
-                    f"Connection maintenance cancelled for account {account_id}"
-                )
-                break
-            except Exception as e:
-                logger.error(
-                    f"Error in connection maintenance for account {account_id}: {e}"
-                )
-                await asyncio.sleep(5)  # Wait before retry
-
-    async def cleanup(self) -> None:
-        """
-        Disconnect all clients and cleanup resources.
-        Should be called when shutting down the application.
-        """
-        async with self._instance_lock:
-            for account_id in list(self._clients.keys()):
-                await self.disconnect_client(account_id)
+    def __len__(self) -> int:
+        """Get number of active clients."""
+        return len(self._clients)
