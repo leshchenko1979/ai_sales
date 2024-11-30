@@ -6,6 +6,7 @@ from typing import List, Optional
 from core.accounts.models import Account, AccountStatus
 from core.db.base import BaseQueries
 from sqlalchemy import select
+from sqlalchemy.sql import and_
 
 logger = logging.getLogger(__name__)
 
@@ -118,3 +119,19 @@ class AccountQueries(BaseQueries):
         except Exception as e:
             logger.error(f"Failed to get available account: {e}", exc_info=True)
             return None
+
+    async def get_available_accounts(self) -> List[Account]:
+        """Get all available accounts."""
+        stmt = (
+            select(Account)
+            .where(
+                and_(
+                    Account.status == AccountStatus.active,
+                    Account.session_string.is_not(None),
+                )
+            )
+            .order_by(Account.last_used_at.asc())
+        )
+
+        result = await self.session.execute(stmt)
+        return result.scalars().all()

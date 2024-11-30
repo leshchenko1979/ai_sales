@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from core.accounts.client_manager import ClientManager
 from core.accounts.models import Account, AccountStatus
@@ -240,3 +240,13 @@ class AccountManager:
         except Exception as e:
             logger.error(f"Error checking flood wait for {phone}: {e}", exc_info=True)
             return False
+
+    @with_queries(AccountQueries)
+    async def get_available_accounts(self, queries: AccountQueries) -> List[Account]:
+        """Get list of available accounts."""
+        try:
+            result = await queries.get_available_accounts()
+            return result
+        except Exception as e:
+            logger.error(f"Failed to get available accounts: {e}")
+            return []
