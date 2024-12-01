@@ -4,8 +4,10 @@ import asyncio
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
+from sqlalchemy.orm import selectinload
 
 # Add project root to path
 root_dir = Path(__file__).parent.parent
@@ -13,131 +15,166 @@ sys.path.append(str(root_dir))
 
 load_dotenv()
 
+from core.accounts.models.profile import AccountProfile
 from core.accounts.queries.account import AccountQueries
 from core.accounts.queries.profile import ProfileQueries
 from core.db import with_queries
 
 
 def format_datetime(dt: datetime | None) -> str:
-    """Format datetime for display."""
+    """Format datetime for display in a human-readable format."""
     if not dt:
         return "Never"
 
-    # Convert naive datetime to aware if needed
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
 
-    now = datetime.now(timezone.utc)
-    delta = now - dt
+    delta = datetime.now(timezone.utc) - dt
+
     if delta.days > 0:
         return f"{delta.days}d ago"
-    hours = delta.seconds // 3600
-    if hours > 0:
+    if (hours := delta.seconds // 3600) > 0:
         return f"{hours}h ago"
-    minutes = (delta.seconds % 3600) // 60
-    return f"{minutes}m ago"
+    return f"{(delta.seconds % 3600) // 60}m ago"
+
+
+def truncate_text(
+    text: str | None, max_length: int = 20, placeholder: str = "..."
+) -> str:
+    """Truncate text to specified length and add placeholder if needed.
+
+    Args:
+        text: Text to truncate
+        max_length: Maximum length of the resulting text
+        placeholder: String to append when text is truncated
+    """
+    if not text:
+        return ""
+    text = text.strip()
+    if len(text) <= max_length:
+        return text
+    return f"{text[:max_length - len(placeholder)]}{placeholder}"
+
+
+def print_table(
+    headers: list[str], rows: list[tuple[Any, ...]], widths: list[int]
+) -> None:
+    """Print formatted table with headers and rows."""
+    total_width = sum(widths) + len(widths) - 1  # Account for spaces between columns
+    separator = "-" * total_width
+    row_format = " ".join(f"{{:<{w}}}" for w in widths)
+
+    print(separator)
+    print(row_format.format(*headers))
+    print(separator)
+
+    for row in rows:
+        # Convert all values to strings and ensure proper length
+        formatted_row = [
+            str(val)[:width] if isinstance(val, str) else str(val)
+            for val, width in zip(row, widths)
+        ]
+        print(row_format.format(*formatted_row))
+
+    print(separator)
+    print(f"Total: {len(rows)}")
 
 
 @with_queries((AccountQueries, ProfileQueries))
 async def check_profiles(
     account_queries: AccountQueries, profile_queries: ProfileQueries
-):
-    """Check all profiles in database."""
-    # Get all templates
-    print("\nProfile templates:")
-    print("-" * 120)
-    print(
-        f"{'ID':<5} {'Name':<20} {'First Name':<15} {'Last Name':<15} "
-        f"{'Bio':<20} {'Active':<8} {'Source'}"
-    )
-    print("-" * 120)
-
+) -> None:
+    """Check and display information about all profiles in database."""
+    # Get templates data
     templates = await profile_queries.get_active_templates()
-    for template in templates:
-        source = (
-            f"Account #{template.source_account_id}"
-            if template.source_account_id
-            else "Manual"
+    template_rows = [
+        (
+            template.id,
+            truncate_text(template.name, 20),
+            truncate_text(template.first_name, 15),
+            truncate_text(template.last_name or "", 15),
+            truncate_text(template.bio, 20),
+            "Yes" if template.is_active else "No",
+            (
+                f"Account #{template.source_account_id}"
+                if template.source_account_id
+                else "Manual"
+            ),
         )
-        bio = (
-            template.bio[:20] + "..."
-            if template.bio and len(template.bio) > 20
-            else template.bio or ""
-        )
-        print(
-            f"{template.id:<5} "
-            f"{template.name[:20]:<20} "
-            f"{template.first_name[:15]:<15} "
-            f"{(template.last_name or '')[:15]:<15} "
-            f"{bio:<20} "
-            f"{'Yes' if template.is_active else 'No':<8} "
-            f"{source}"
-        )
-    print("-" * 120)
-    print(f"Total templates: {len(templates)}")
+        for template in templates
+    ]
 
-    # Get all profiles
-    print("\nAccount profiles:")
-    print("-" * 120)
-    print(
-        f"{'Account ID':<10} {'Template':<20} {'First Name':<15} {'Last Name':<15} "
-        f"{'Bio':<20} {'Synced':<8} {'Last Sync':<10} {'TG Update':<10} {'History'}"
+    print("\nProfile templates:")
+    print_table(
+        headers=["ID", "Name", "First Name", "Last Name", "Bio", "Active", "Source"],
+        rows=template_rows,
+        widths=[5, 20, 15, 15, 20, 8, 20],
     )
-    print("-" * 120)
 
-    profiles = await profile_queries.get_all_profiles()
+    # Get profiles with preloaded relationships
+    profiles = await profile_queries.get_all_profiles(
+        options=[
+            selectinload(AccountProfile.history),
+            selectinload(AccountProfile.template),
+        ]
+    )
+
+    profile_rows = [
+        (
+            profile.account_id,
+            truncate_text(
+                profile.template.name if profile.template else "No template", 20
+            ),
+            truncate_text(profile.first_name, 15),
+            truncate_text(profile.last_name or "", 15),
+            truncate_text(profile.bio, 20),
+            "Yes" if profile.is_synced else "No",
+            format_datetime(profile.last_synced_at),
+            format_datetime(profile.last_telegram_update),
+            f"{len(profile.history)} changes ({profile.history[0].change_type if profile.history else 'No changes'})",
+        )
+        for profile in profiles
+    ]
+
+    print("\nAccount profiles:")
+    print_table(
+        headers=[
+            "Account ID",
+            "Template",
+            "First Name",
+            "Last Name",
+            "Bio",
+            "Synced",
+            "Last Sync",
+            "TG Update",
+            "History",
+        ],
+        rows=profile_rows,
+        widths=[10, 20, 15, 15, 20, 8, 10, 10, 30],
+    )
+
+    # Get accounts without profiles
     profile_account_ids = {p.account_id for p in profiles}
-
-    for profile in profiles:
-        template_name = profile.template.name if profile.template else "No template"
-        bio = (
-            profile.bio[:20] + "..."
-            if profile.bio and len(profile.bio) > 20
-            else profile.bio or ""
-        )
-        history_count = len(profile.history)
-        last_change = (
-            profile.history[0].change_type if history_count > 0 else "No changes"
-        )
-
-        # Format sync info
-        last_sync = format_datetime(profile.last_synced_at)
-        last_tg = format_datetime(profile.last_telegram_update)
-
-        print(
-            f"{profile.account_id:<10} "
-            f"{template_name[:20]:<20} "
-            f"{profile.first_name[:15]:<15} "
-            f"{(profile.last_name or '')[:15]:<15} "
-            f"{bio:<20} "
-            f"{'Yes' if profile.is_synced else 'No':<8} "
-            f"{last_sync:<10} "
-            f"{last_tg:<10} "
-            f"{history_count} changes ({last_change})"
-        )
-    print("-" * 120)
-    print(f"Total profiles: {len(profiles)}")
-
-    # Check accounts without profiles
-    print("\nAccounts without profiles:")
-    print("-" * 80)
-    print(f"{'ID':<5} {'Phone':<15} {'Status':<15} {'Messages':<10} {'Last Used'}")
-    print("-" * 80)
-
     accounts = await account_queries.get_all_accounts()
     accounts_without_profiles = [a for a in accounts if a.id not in profile_account_ids]
 
-    for account in accounts_without_profiles:
-        last_used = format_datetime(account.last_used_at)
-        print(
-            f"{account.id:<5} "
-            f"{account.phone:<15} "
-            f"{account.status.value:<15} "
-            f"{account.daily_messages:<10} "
-            f"{last_used}"
+    account_rows = [
+        (
+            account.id,
+            truncate_text(account.phone, 15),
+            truncate_text(account.status.value, 15),
+            account.daily_messages,
+            format_datetime(account.last_used_at),
         )
-    print("-" * 80)
-    print(f"Total accounts without profiles: {len(accounts_without_profiles)}")
+        for account in accounts_without_profiles
+    ]
+
+    print("\nAccounts without profiles:")
+    print_table(
+        headers=["ID", "Phone", "Status", "Messages", "Last Used"],
+        rows=account_rows,
+        widths=[5, 15, 15, 10, 20],
+    )
 
 
 if __name__ == "__main__":

@@ -1,12 +1,13 @@
 """Profile related queries."""
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from core.accounts.models.profile import AccountProfile, ProfileHistory, ProfileTemplate
 from core.db import BaseQueries
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import Load
 
 logger = logging.getLogger(__name__)
 
@@ -14,12 +15,21 @@ logger = logging.getLogger(__name__)
 class ProfileQueries(BaseQueries):
     """Queries for profile templates and account profiles."""
 
-    async def get_all_profiles(self) -> List[AccountProfile]:
-        """Get all account profiles."""
+    async def get_all_profiles(
+        self, options: Optional[Sequence[Load]] = None
+    ) -> List[AccountProfile]:
+        """Get all account profiles.
+
+        Args:
+            options: Optional sequence of relationship loading options
+        """
         try:
-            result = await self.session.execute(
-                select(AccountProfile).order_by(AccountProfile.account_id)
-            )
+            query = select(AccountProfile).order_by(AccountProfile.account_id)
+            if options:
+                for option in options:
+                    query = query.options(option)
+
+            result = await self.session.execute(query)
             return list(result.scalars().all())
         except SQLAlchemyError as e:
             logger.error(f"Failed to get profiles: {e}")
