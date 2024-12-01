@@ -138,7 +138,7 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
 
         from core.accounts.client import AccountClient
         from core.accounts.manager import AccountManager
-        from core.accounts.models import AccountStatus
+        from core.accounts.models.account import AccountStatus
         from core.accounts.monitoring import AccountMonitor
         from infrastructure.logging import setup_logging
 

@@ -12,7 +12,7 @@ sys.path.append(str(root_dir))
 
 load_dotenv()
 
-from core.accounts.models import AccountStatus
+from core.accounts.models.account import AccountStatus
 from core.accounts.queries import AccountQueries
 from core.db import get_db, with_queries
 

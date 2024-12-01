@@ -24,7 +24,7 @@ async def reset_database():
     """Reset database by dropping all tables and recreating them."""
     try:
         # Import modules
-        from core.accounts.models import Account  # noqa: E402 F401
+        from core.accounts.models.account import Account  # noqa: E402 F401
         from core.db import Base, engine
         from core.messaging.models import Dialog, Message  # noqa: E402 F401
 

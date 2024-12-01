@@ -3,7 +3,7 @@
 import logging
 from typing import List
 
-from core.accounts.models import AccountStatus
+from core.accounts.models.account import AccountStatus
 from core.db import with_queries
 
 from .client import AccountClient

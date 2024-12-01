@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from core.accounts.client_manager import ClientManager
-from core.accounts.models import Account, AccountStatus
+from core.accounts.models.account import Account, AccountStatus
 from core.accounts.queries.account import AccountQueries
 from core.db import with_queries
 
@@ -250,3 +250,109 @@ class AccountManager:
         except Exception as e:
             logger.error(f"Failed to get available accounts: {e}")
             return []
+
+    async def update_account_profile(
+        self,
+        phone: str,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        bio: Optional[str] = None,
+        photo_path: Optional[str] = None,
+    ) -> bool:
+        """Update account profile both in Telegram and database."""
+        try:
+            # Get account
+            account = await self.get_or_create_account(phone)
+            if not account:
+                return False
+
+            # Update Telegram profile
+            client = await self.client_manager.get_client(phone, account.session_string)
+            if not client:
+                return False
+
+            if not await client.update_profile(
+                first_name=first_name,
+                last_name=last_name,
+                bio=bio,
+                photo_path=photo_path,
+            ):
+                return False
+
+            # Update database profile
+            profile = await self.queries.update_account_profile(
+                account.id,
+                first_name=first_name,
+                last_name=last_name,
+                bio=bio,
+                photo_path=photo_path,
+            )
+
+            return bool(profile)
+
+        except Exception as e:
+            logger.error(f"Error updating profile for {phone}: {e}")
+            return False
+
+    async def get_account_profile(self, phone: str) -> Optional[dict]:
+        """Get account profile info."""
+        try:
+            # Get account
+            account = await self.get_or_create_account(phone)
+            if not account:
+                return None
+
+            # Get current Telegram profile
+            client = await self.client_manager.get_client(phone, account.session_string)
+            if not client:
+                return None
+
+            profile = await client.get_profile()
+            if not profile:
+                return None
+
+            # Get database profile
+            db_profile = await self.queries.get_account_profile(account.id)
+            if db_profile:
+                profile["photo_path"] = db_profile.photo_path
+
+            return profile
+
+        except Exception as e:
+            logger.error(f"Error getting profile for {phone}: {e}")
+            return None
+
+    async def sync_account_profile(self, phone: str) -> bool:
+        """Sync account profile with Telegram."""
+        try:
+            # Get account and profile
+            account = await self.get_or_create_account(phone)
+            if not account:
+                return False
+
+            profile = await self.queries.get_account_profile(account.id)
+            if not profile:
+                return False
+
+            # Get client
+            client = await self.client_manager.get_client(phone, account.session_string)
+            if not client:
+                return False
+
+            if await client.update_profile(
+                first_name=profile.first_name,
+                last_name=profile.last_name,
+                bio=profile.bio,
+                photo=profile.photo,
+            ):
+                # Update sync status
+                profile.is_synced = True
+                profile.last_synced_at = datetime.utcnow()
+                self.queries.session.add(profile)
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error syncing profile for {phone}: {e}")
+            return False

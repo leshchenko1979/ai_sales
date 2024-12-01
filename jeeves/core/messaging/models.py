@@ -12,7 +12,7 @@ from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
-    from core.accounts.models import Account
+    from core.accounts.models.account import Account
 
 
 class Dialog(Base):

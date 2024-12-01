@@ -1,4 +1,4 @@
-"""Account models."""
+"""Account model."""
 
 from datetime import datetime, timedelta
 from enum import Enum

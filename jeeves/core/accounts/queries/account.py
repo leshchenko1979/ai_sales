@@ -3,10 +3,10 @@
 import logging
 from typing import List, Optional
 
-from core.accounts.models import Account, AccountStatus
 from core.db.base import BaseQueries
-from sqlalchemy import select
-from sqlalchemy.sql import and_
+from sqlalchemy import and_, select
+
+from ..models.account import Account, AccountStatus
 
 logger = logging.getLogger(__name__)
 

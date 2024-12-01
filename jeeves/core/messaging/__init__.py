@@ -1,8 +1,9 @@
 """Messaging package."""
 
+from .conductor import DialogConductor
 from .delivery import MessageDelivery
 from .enums import DialogStatus, MessageDirection
-from .models import DeliveryOptions, DeliveryResult
+from .models import DeliveryOptions, DeliveryResult, Dialog, Message
 from .queries import DialogQueries, MessageQueries
 
 __all__ = [
@@ -11,7 +12,9 @@ __all__ = [
     "DeliveryOptions",
     "DeliveryResult",
     "MessageDelivery",
-    "ConversationConductor",
+    "DialogConductor",
     "MessageQueries",
     "DialogQueries",
+    "Dialog",
+    "Message",
 ]
