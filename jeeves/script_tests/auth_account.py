@@ -150,7 +150,7 @@ async def test_account_flow(phone: Optional[str] = None) -> bool:
         monitor = AccountMonitor()
 
         # Use test number if not specified
-        phone = phone or "79189452071"
+        phone = phone or "796902557707908,7"
         logger.info(f"Testing account {phone}")
 
         # 1. Create account

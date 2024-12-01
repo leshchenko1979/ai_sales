@@ -13,13 +13,6 @@ from .queries.account import AccountQueries
 logger = logging.getLogger(__name__)
 
 
-def to_naive_utc(dt: datetime) -> datetime:
-    """Convert datetime to naive UTC."""
-    if dt.tzinfo is None:
-        return dt
-    return dt.astimezone(timezone.utc).replace(tzinfo=None)
-
-
 class AccountNotifier:
     """Account status updates and notifications."""
 
@@ -39,8 +32,12 @@ class AccountNotifier:
     ) -> bool:
         """Update account flood wait status and notify."""
         try:
+            # Ensure flood_wait_until is timezone-aware
+            if flood_wait_until.tzinfo is None:
+                flood_wait_until = flood_wait_until.replace(tzinfo=timezone.utc)
+
             await queries.update_account(
-                account.phone, flood_wait_until=to_naive_utc(flood_wait_until)
+                account.phone, flood_wait_until=flood_wait_until
             )
 
             # Log the event

@@ -13,13 +13,6 @@ from .queries.account import AccountQueries
 logger = logging.getLogger(__name__)
 
 
-def to_naive_utc(dt: datetime) -> datetime:
-    """Convert datetime to naive UTC."""
-    if dt.tzinfo is None:
-        return dt
-    return dt.astimezone(timezone.utc).replace(tzinfo=None)
-
-
 class AccountMonitor:
     """Account monitor."""
 
@@ -40,13 +33,15 @@ class AccountMonitor:
             try:
                 flood_wait_until = await client.check_flood_wait()
                 if flood_wait_until:
+                    if flood_wait_until.tzinfo is None:
+                        flood_wait_until = flood_wait_until.replace(tzinfo=timezone.utc)
                     await queries.update_account(
-                        account.phone, flood_wait_until=to_naive_utc(flood_wait_until)
+                        account.phone, flood_wait_until=flood_wait_until
                     )
                     return False
 
                 await queries.update_account(
-                    account.phone, last_used_at=to_naive_utc(datetime.now(timezone.utc))
+                    account.phone, last_used_at=datetime.now(timezone.utc)
                 )
                 return True
 

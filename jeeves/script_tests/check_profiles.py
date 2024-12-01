@@ -22,6 +22,11 @@ def format_datetime(dt: datetime | None) -> str:
     """Format datetime for display."""
     if not dt:
         return "Never"
+
+    # Convert naive datetime to aware if needed
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
     now = datetime.now(timezone.utc)
     delta = now - dt
     if delta.days > 0:
