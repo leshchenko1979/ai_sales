@@ -1,12 +1,13 @@
 """Message queries."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from core.db.base import BaseQueries
 from core.messaging.models import Message, MessageDirection
 from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +85,14 @@ class MessageQueries(BaseQueries):
                 dialog_id=dialog_id,
                 content=content,
                 direction=direction,
-                timestamp=timestamp or datetime.utcnow(),
+                timestamp=timestamp or datetime.now(timezone.utc),
             )
             self.session.add(message)
             await self.session.flush()
             return message
-        except Exception as e:
-            logger.error(f"Failed to create message for dialog {dialog_id}: {e}")
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to create message: {e}")
+            await self.session.rollback()
             return None
 
     async def update_message_content(

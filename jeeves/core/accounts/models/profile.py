@@ -1,9 +1,9 @@
 """Profile related models."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Annotated, Optional
 
-from core.db.models import Base
+from core.db.models import Base, TimestampType
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -17,6 +17,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from .account import Account
+
+
+DateTimeType = Annotated[
+    Optional[datetime], mapped_column(DateTime(timezone=True), nullable=True)
+]
 
 
 class ProfileTemplate(Base):
@@ -41,8 +46,12 @@ class ProfileTemplate(Base):
         BigInteger, ForeignKey("accounts.id"), nullable=True
     )
 
+    # Timestamps
+    created_at: Mapped[TimestampType]
+    updated_at: Mapped[TimestampType]
+
     # Relationships
-    profiles: Mapped[List["AccountProfile"]] = relationship(
+    profiles: Mapped[list["AccountProfile"]] = relationship(
         "AccountProfile",
         back_populates="template",
         foreign_keys="AccountProfile.template_id",
@@ -78,10 +87,12 @@ class AccountProfile(Base):
 
     # Sync status
     is_synced: Mapped[bool] = mapped_column(Boolean, default=False)
-    last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    last_telegram_update: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True
-    )
+    last_synced_at: Mapped[DateTimeType]
+    last_telegram_update: Mapped[DateTimeType]
+
+    # Timestamps
+    created_at: Mapped[TimestampType]
+    updated_at: Mapped[TimestampType]
 
     # Relationships
     account: Mapped["Account"] = relationship(
@@ -90,7 +101,7 @@ class AccountProfile(Base):
     template: Mapped[Optional["ProfileTemplate"]] = relationship(
         "ProfileTemplate", foreign_keys=[template_id], back_populates="profiles"
     )
-    history: Mapped[List["ProfileHistory"]] = relationship(
+    history: Mapped[list["ProfileHistory"]] = relationship(
         "ProfileHistory",
         back_populates="profile",
         order_by="desc(ProfileHistory.created_at)",
@@ -125,6 +136,10 @@ class ProfileHistory(Base):
     change_type: Mapped[str] = mapped_column(
         String
     )  # template_applied, manual_update, telegram_sync
+
+    # Timestamps
+    created_at: Mapped[TimestampType]
+    updated_at: Mapped[TimestampType]
 
     # Relationships
     profile: Mapped["AccountProfile"] = relationship(

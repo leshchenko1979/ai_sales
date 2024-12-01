@@ -14,6 +14,17 @@ logger = logging.getLogger(__name__)
 class ProfileQueries(BaseQueries):
     """Queries for profile templates and account profiles."""
 
+    async def get_all_profiles(self) -> List[AccountProfile]:
+        """Get all account profiles."""
+        try:
+            result = await self.session.execute(
+                select(AccountProfile).order_by(AccountProfile.account_id)
+            )
+            return list(result.scalars().all())
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to get profiles: {e}")
+            return []
+
     async def get_account_profile(self, account_id: int) -> Optional[AccountProfile]:
         """Get account profile by account ID."""
         try:
@@ -78,9 +89,9 @@ class ProfileQueries(BaseQueries):
                 logger.error(f"Template {template_id} not found or inactive")
                 return None
 
-            profile = await self.get_account_profile(account_id)
-            if not profile:
-                profile = AccountProfile(account_id=account_id)
+            profile = await self.get_account_profile(account_id) or AccountProfile(
+                account_id=account_id
+            )
 
             # Copy template data
             profile.template_id = template.id

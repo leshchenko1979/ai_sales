@@ -1,7 +1,7 @@
 """Account manager."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from core.accounts.client_manager import ClientManager
@@ -147,7 +147,7 @@ class AccountManager:
                 logger.debug(f"Updating account data for {phone}")
                 account.session_string = session_string
                 account.status = AccountStatus.active
-                account.last_used = datetime.utcnow()
+                account.last_used = datetime.now(timezone.utc)
                 queries.session.add(account)
 
                 logger.debug(f"Successfully authorized {phone}")
@@ -189,7 +189,7 @@ class AccountManager:
                 return None
 
             # Update last used
-            account.last_used = datetime.utcnow()
+            account.last_used = datetime.now(timezone.utc)
             queries.session.add(account)
 
             return account
@@ -226,10 +226,7 @@ class AccountManager:
                 flood_wait = await client.check_flood_wait()
 
                 # Update account
-                if flood_wait:
-                    account.flood_wait_until = flood_wait
-                else:
-                    account.flood_wait_until = None
+                account.flood_wait_until = flood_wait or None
                 queries.session.add(account)
 
                 return True
@@ -245,8 +242,7 @@ class AccountManager:
     async def get_available_accounts(self, queries: AccountQueries) -> List[Account]:
         """Get list of available accounts."""
         try:
-            result = await queries.get_available_accounts()
-            return result
+            return await queries.get_available_accounts()
         except Exception as e:
             logger.error(f"Failed to get available accounts: {e}")
             return []
@@ -347,7 +343,7 @@ class AccountManager:
             ):
                 # Update sync status
                 profile.is_synced = True
-                profile.last_synced_at = datetime.utcnow()
+                profile.last_synced_at = datetime.now(timezone.utc)
                 self.queries.session.add(profile)
                 return True
 
@@ -355,4 +351,39 @@ class AccountManager:
 
         except Exception as e:
             logger.error(f"Error syncing profile for {phone}: {e}")
+            return False
+
+    async def increment_messages(self, account_id: int) -> bool:
+        """Increment messages count for account."""
+        try:
+            account = await self.get_account(account_id)
+            if not account:
+                return False
+
+            account.messages_sent += 1
+            account.daily_messages += 1
+            account.last_used_at = datetime.now(timezone.utc)
+            await self.session.flush()
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to increment messages for account {account_id}: {e}")
+            await self.session.rollback()
+            return False
+
+    async def update_profile(self, account_id: int) -> bool:
+        """Update account profile from Telegram."""
+        try:
+            account = await self.get_account(account_id)
+            if not account or not account.profile:
+                return False
+
+            profile = account.profile
+            profile.last_synced_at = datetime.now(timezone.utc)
+            await self.session.flush()
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update profile for account {account_id}: {e}")
+            await self.session.rollback()
             return False

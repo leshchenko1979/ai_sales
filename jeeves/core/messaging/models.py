@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Annotated, Optional
 
-from core.db.models import Base
+from core.db.models import Base, TimestampType, utcnow
 from core.messaging.enums import DialogStatus, MessageDirection
 from sqlalchemy import BigInteger, DateTime
 from sqlalchemy import Enum as SQLEnum
@@ -15,6 +15,11 @@ if TYPE_CHECKING:
     from core.accounts.models.account import Account
 
 
+DateTimeType = Annotated[
+    Optional[datetime], mapped_column(DateTime(timezone=True), nullable=True)
+]
+
+
 class Dialog(Base):
     """Dialog model."""
 
@@ -23,11 +28,15 @@ class Dialog(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str] = mapped_column(String)
     account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("accounts.id"))
-    last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_message_at: Mapped[DateTimeType]
     is_active: Mapped[bool] = mapped_column(default=True)
     status: Mapped[DialogStatus] = mapped_column(
         SQLEnum(DialogStatus), default=DialogStatus.active
     )
+
+    # Timestamps
+    created_at: Mapped[TimestampType]
+    updated_at: Mapped[TimestampType]
 
     # Relationships
     messages: Mapped[list["Message"]] = relationship(
@@ -67,7 +76,11 @@ class Message(Base):
     dialog_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("dialogs.id"))
     direction: Mapped[MessageDirection] = mapped_column(SQLEnum(MessageDirection))
     content: Mapped[str] = mapped_column(String)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp: Mapped[TimestampType] = mapped_column(default=utcnow)
+
+    # Timestamps
+    created_at: Mapped[TimestampType]
+    updated_at: Mapped[TimestampType]
 
     # Relationships
     dialog: Mapped[Dialog] = relationship(

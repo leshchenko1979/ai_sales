@@ -25,7 +25,7 @@ async def check_accounts(queries: AccountQueries):
         print("\nAll accounts in database:")
         print("-" * 100)
         print(
-            f"{'ID':<5} {'Phone':<15} {'Status':<10} {'Has Session':<12} {'Messages':<10} {'Can Be Used'}"
+            f"{'ID':<5} {'Phone':<15} {'Status':<10} {'Has Session':<12} {'Messages':<10} Can Be Used"
         )
         print("-" * 100)
 
@@ -63,9 +63,7 @@ async def check_accounts(queries: AccountQueries):
                 if (acc.daily_messages or 0) >= 40:
                     reasons.append("Daily message limit reached")
                 status = (
-                    "Available"
-                    if not reasons
-                    else f"Not available: {', '.join(reasons)}"
+                    f"Not available: {', '.join(reasons)}" if reasons else "Available"
                 )
                 print(f"- {acc.phone}: {status}")
         else:

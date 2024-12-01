@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from infrastructure.config import API_HASH, API_ID
@@ -216,7 +216,7 @@ class AccountClient:
 
         except FloodWait as e:
             # Return flood wait end time in UTC
-            return datetime.utcnow() + timedelta(seconds=e.value)
+            return datetime.now(timezone.utc) + timedelta(seconds=e.value)
 
         except Exception as e:
             logger.error(

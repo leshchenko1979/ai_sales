@@ -1,12 +1,13 @@
 """Dialog queries."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from core.db.base import BaseQueries
 from core.messaging.models import Dialog, DialogStatus
 from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
@@ -55,30 +56,32 @@ class DialogQueries(BaseQueries):
             logger.error(f"Failed to create dialog for {username}: {e}")
             return None
 
-    async def update_status(self, dialog_id: int, status: DialogStatus) -> bool:
+    async def update_dialog_status(self, dialog_id: int, status: DialogStatus) -> bool:
         """Update dialog status."""
         try:
-            query = (
+            await self.session.execute(
                 update(Dialog)
                 .where(Dialog.id == dialog_id)
-                .values(status=status, updated_at=datetime.utcnow())
+                .values(status=status, updated_at=datetime.now(timezone.utc))
             )
-            await self.session.execute(query)
+            await self.session.flush()
             return True
-        except Exception as e:
-            logger.error(f"Failed to update dialog {dialog_id} status: {e}")
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to update dialog status: {e}")
+            await self.session.rollback()
             return False
 
-    async def mark_inactive(self, dialog_id: int) -> bool:
-        """Mark dialog as inactive."""
+    async def stop_dialog(self, dialog_id: int) -> bool:
+        """Stop dialog."""
         try:
-            query = (
+            await self.session.execute(
                 update(Dialog)
                 .where(Dialog.id == dialog_id)
-                .values(is_active=False, updated_at=datetime.utcnow())
+                .values(is_active=False, updated_at=datetime.now(timezone.utc))
             )
-            await self.session.execute(query)
+            await self.session.flush()
             return True
-        except Exception as e:
-            logger.error(f"Failed to mark dialog {dialog_id} inactive: {e}")
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to stop dialog: {e}")
+            await self.session.rollback()
             return False

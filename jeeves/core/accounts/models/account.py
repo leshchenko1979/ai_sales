@@ -1,10 +1,10 @@
 """Account model."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Annotated, Optional
 
-from core.db.models import Base
+from core.db.models import Base, TimestampType
 from infrastructure.config import MAX_MESSAGES_PER_DAY, MAX_MESSAGES_PER_HOUR
 from sqlalchemy import BigInteger, Boolean, DateTime
 from sqlalchemy import Enum as SQLEnum
@@ -14,6 +14,8 @@ from utils.phone import normalize_phone
 
 if TYPE_CHECKING:
     from core.messaging.models import Dialog
+
+    from .profile import AccountProfile
 
 
 class AccountStatus(str, Enum):
@@ -26,6 +28,11 @@ class AccountStatus(str, Enum):
     disabled = "disabled"
     blocked = "blocked"
     warming = "warming"
+
+
+DateTimeType = Annotated[
+    Optional[datetime], mapped_column(DateTime(timezone=True), nullable=True)
+]
 
 
 class Account(Base):
@@ -46,17 +53,18 @@ class Account(Base):
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Timestamps
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    last_warmup_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    flood_wait_until: Mapped[Optional[datetime]] = mapped_column(
-        DateTime, nullable=True
-    )
+    created_at: Mapped[TimestampType]
+    updated_at: Mapped[TimestampType]
+    last_used_at: Mapped[DateTimeType]
+    last_warmup_at: Mapped[DateTimeType]
+    flood_wait_until: Mapped[DateTimeType]
 
     # Relationships
     dialogs: Mapped[list["Dialog"]] = relationship(
         "Dialog", back_populates="account", lazy="selectin"
+    )
+    profile: Mapped[Optional["AccountProfile"]] = relationship(
+        "AccountProfile", back_populates="account", uselist=False, lazy="selectin"
     )
 
     def __init__(self, **kwargs):
@@ -70,7 +78,7 @@ class Account(Base):
         """Check if account is in flood wait."""
         if not self.flood_wait_until:
             return False
-        return self.flood_wait_until > datetime.utcnow()
+        return self.flood_wait_until > datetime.now(timezone.utc)
 
     @property
     def can_be_used(self) -> bool:
@@ -94,7 +102,7 @@ class Account(Base):
         if not self.last_used_at:
             return False
 
-        hour_ago = datetime.utcnow() - timedelta(hours=1)
+        hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
         if self.last_used_at <= hour_ago:
             return False
 

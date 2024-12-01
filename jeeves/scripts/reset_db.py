@@ -1,6 +1,6 @@
 # noqa
 
-"""Reset database script."""
+"""Database migration script."""
 
 import asyncio
 import logging
@@ -20,28 +20,50 @@ sys.path.append(str(root_dir))
 logger = logging.getLogger(__name__)
 
 
-async def reset_database():
-    """Reset database by dropping all tables and recreating them."""
+async def migrate_database():
+    """Create missing tables and relationships."""
     try:
         # Import modules
-        from core.accounts.models.account import Account  # noqa: E402 F401
+        from core.accounts.models.account import Account  # noqa: F401
+        from core.accounts.models.profile import (  # noqa: F401
+            AccountProfile,
+            ProfileHistory,
+            ProfileTemplate,
+        )
         from core.db import Base, engine
-        from core.messaging.models import Dialog, Message  # noqa: E402 F401
+        from core.messaging.models import Dialog, Message  # noqa: F401
+        from sqlalchemy import inspect, text
 
-        # Create tables
-        logger.info("Dropping all tables...")
+        # Get inspector to check existing tables
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
+            # Get existing tables
+            existing_tables = await conn.run_sync(
+                lambda sync_conn: inspect(sync_conn).get_table_names()
+            )
 
-        logger.info("Creating database tables...")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            # Create missing tables
+            logger.info("Checking database tables...")
+            for table_name, table in Base.metadata.tables.items():
+                if table_name not in existing_tables:
+                    logger.info(f"Creating table {table_name}...")
+                    await conn.run_sync(lambda sync_conn: table.create(sync_conn))
+                else:
+                    logger.info(f"Table {table_name} already exists")
 
-        logger.info("Database reset successfully!")
+            # Ensure sequences are in sync
+            for table_name in existing_tables:
+                if table_name in Base.metadata.tables:
+                    await conn.execute(
+                        text(
+                            f"SELECT setval('{table_name}_id_seq', COALESCE((SELECT MAX(id) FROM {table_name}), 1), false);"
+                        )
+                    )
+
+        logger.info("Database migration completed successfully!")
         return True
 
     except Exception as e:
-        logger.error(f"Error resetting database: {e}", exc_info=True)
+        logger.error(f"Error migrating database: {e}", exc_info=True)
         return False
 
 
@@ -51,6 +73,6 @@ if __name__ == "__main__":
 
     setup_logging()
 
-    # Run database reset
-    success = asyncio.run(reset_database())
+    # Run database migration
+    success = asyncio.run(migrate_database())
     sys.exit(0 if success else 1)
