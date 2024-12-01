@@ -17,6 +17,6 @@ venv
 # Log and session files
 *.log
 *.session
-sales_bot.session
-sales_bot/logs/sales_bot.log
-sales_bot/exports/
+jeeves.session
+jeeves/logs/jeeves.log
+jeeves/exports/

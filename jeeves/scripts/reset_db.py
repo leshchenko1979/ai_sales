@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Add sales_bot directory to Python path
+# Add jeeves directory to Python path
 root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir))
 

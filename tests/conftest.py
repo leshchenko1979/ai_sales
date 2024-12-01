@@ -7,7 +7,7 @@ import pytest
 from dotenv import load_dotenv
 
 # Add project root to Python path
-PROJECT_ROOT = Path(__file__).parent.parent / "sales_bot"
+PROJECT_ROOT = Path(__file__).parent.parent / "jeeves"
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # Load environment variables from .env file

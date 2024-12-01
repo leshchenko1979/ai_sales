@@ -19,8 +19,8 @@ for directory in [DATA_DIR, LOGS_DIR, EXPORTS_DIR]:
     directory.mkdir(exist_ok=True)
 
 # Application
-APP_NAME: Final[str] = "AI Sales Bot"
-APP_URL: Final[str] = os.getenv("APP_URL", "https://ai-sales-bot.example.com")
+APP_NAME: Final[str] = "Jeeves"
+APP_URL: Final[str] = os.getenv("APP_URL", "https://jeeves.example.com")
 
 # Database
 DATABASE_URL: Final[str] = os.getenv("DATABASE_URL")
@@ -92,3 +92,6 @@ TESTER_TELEGRAM_IDS: Final[list[int]] = []
 
 # Notifications
 LESHCHENKO_CHAT_ID: Final[int] = 133526395
+
+# Feedback
+ANALYSIS_GROUP: Final[str] = "sales_bot_analysis"

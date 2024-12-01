@@ -18,7 +18,7 @@ def setup_logging():
     console_handler.setLevel(logging.INFO)  # Console shows INFO and above
 
     # Create file handler
-    log_file = LOGS_DIR / "sales_bot.log"
+    log_file = LOGS_DIR / "jeeves.log"
     file_handler = logging.handlers.RotatingFileHandler(
         log_file,
         maxBytes=10 * 1024 * 1024,  # 10MB

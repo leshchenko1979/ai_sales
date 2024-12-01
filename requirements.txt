@@ -6,3 +6,4 @@ aiohttp
 sqlalchemy-utils
 pyyaml
 openai
+python-dotenv

@@ -1,4 +1,4 @@
-# PowerShell Make Script for AI Sales Project
+# PowerShell Make Script for Jeeves Project
 
 # Stop on any error
 $ErrorActionPreference = "Stop"
@@ -54,9 +54,9 @@ function Install-RemoteDependencies {
     Write-Host "Installing Python dependencies on remote host..." -ForegroundColor Green
 
     $commands = @(
-        'cd /home/sales_bot',
-        'sudo -u sales_bot python3 -m venv venv',
-        'sudo -u sales_bot venv/bin/pip install -r requirements.txt'
+        'cd /home/jeeves',
+        'sudo -u jeeves python3 -m venv venv',
+        'sudo -u jeeves venv/bin/pip install -r requirements.txt'
     ) -join ' && '
 
     ssh "${RemoteUser}@${RemoteHost}" $commands
@@ -64,8 +64,8 @@ function Install-RemoteDependencies {
 
 function Format-Code {
     Write-Host "Formatting code..." -ForegroundColor Green
-    .\venv\Scripts\isort sales_bot tests
-    .\venv\Scripts\black sales_bot tests
+    .\venv\Scripts\isort jeeves tests
+    .\venv\Scripts\black jeeves tests
 }
 
 function Run-Tests {
@@ -86,11 +86,11 @@ function Setup-Logs {
     Write-Host "Setting up log directory on remote host..." -ForegroundColor Green
 
     $commands = @(
-        'sudo mkdir -p /var/log/sales_bot',
-        'sudo chown -R sales_bot:sales_bot /var/log/sales_bot',
-        'sudo chmod -R 755 /var/log/sales_bot',
-        'sudo touch /var/log/sales_bot/app.log /var/log/sales_bot/error.log',
-        'sudo chown sales_bot:sales_bot /var/log/sales_bot/app.log /var/log/sales_bot/error.log'
+        'sudo mkdir -p /var/log/jeeves',
+        'sudo chown -R jeeves:jeeves /var/log/jeeves',
+        'sudo chmod -R 755 /var/log/jeeves',
+        'sudo touch /var/log/jeeves/app.log /var/log/jeeves/error.log',
+        'sudo chown jeeves:jeeves /var/log/jeeves/app.log /var/log/jeeves/error.log'
     ) -join ' && '
 
     ssh "${RemoteUser}@${RemoteHost}" $commands
@@ -107,10 +107,10 @@ function Deploy-Files {
     Write-Host "Deploying application files..." -ForegroundColor Green
 
     # Create remote directory
-    ssh "${RemoteUser}@${RemoteHost}" 'sudo mkdir -p /home/sales_bot/sales_bot'
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo mkdir -p /home/jeeves/jeeves'
 
     # Clean up __pycache__ directories locally
-    Get-ChildItem -Path "./sales_bot" -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force
+    Get-ChildItem -Path "./jeeves" -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force
 
     # Create and prepare temp directory
     $tempDir = Join-Path $env:TEMP "ai_sales_deploy"
@@ -118,7 +118,7 @@ function Deploy-Files {
     New-Item -ItemType Directory -Path $tempDir | Out-Null
 
     # Copy files excluding tests
-    Get-ChildItem -Path "./sales_bot" -Recurse |
+    Get-ChildItem -Path "./jeeves" -Recurse |
         Where-Object {
             -not $_.PSIsContainer -and
             -not $_.Name.EndsWith("_test.py") -and
@@ -137,11 +137,11 @@ function Deploy-Files {
 
     # Deploy files
     Write-Host "`nCopying files to server..." -ForegroundColor Green
-    scp requirements.txt "${RemoteUser}@${RemoteHost}:/home/sales_bot/"
-    scp -r "${tempDir}/*" "${RemoteUser}@${RemoteHost}:/home/sales_bot/"
+    scp requirements.txt "${RemoteUser}@${RemoteHost}:/home/jeeves/"
+    scp -r "${tempDir}/*" "${RemoteUser}@${RemoteHost}:/home/jeeves/"
 
     # Set permissions
-    ssh "${RemoteUser}@${RemoteHost}" 'sudo chown -R sales_bot:sales_bot /home/sales_bot'
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo chown -R jeeves:jeeves /home/jeeves'
 }
 
 function Configure-Service {
@@ -167,13 +167,13 @@ After=network.target postgresql.service
 
 [Service]
 Type=simple
-User=sales_bot
-WorkingDirectory=/home/sales_bot/sales_bot
-Environment=PYTHONPATH=/home/sales_bot
+User=jeeves
+WorkingDirectory=/home/jeeves/jeeves
+Environment=PYTHONPATH=/home/jeeves
 $envSection
-ExecStart=/home/sales_bot/venv/bin/python -u main.py
-StandardOutput=append:/var/log/sales_bot/app.log
-StandardError=append:/var/log/sales_bot/error.log
+ExecStart=/home/jeeves/venv/bin/python -u main.py
+StandardOutput=append:/var/log/jeeves/app.log
+StandardError=append:/var/log/jeeves/error.log
 Restart=always
 RestartSec=10
 
@@ -184,7 +184,7 @@ WantedBy=multi-user.target
     # Convert to Unix line endings
     $serviceContent = $serviceContent.Replace("`r`n", "`n")
 
-    $serviceContent | ssh "${RemoteUser}@${RemoteHost}" 'sudo tee /etc/systemd/system/sales_bot.service'
+    $serviceContent | ssh "${RemoteUser}@${RemoteHost}" 'sudo tee /etc/systemd/system/jeeves.service'
 }
 
 function Start-Service {
@@ -200,11 +200,11 @@ function Start-Service {
     # Use single command string with semicolons
     $commands = @(
         'sudo systemctl daemon-reload',
-        'sudo systemctl enable sales_bot',
-        'sudo systemctl restart sales_bot',
+        'sudo systemctl enable jeeves',
+        'sudo systemctl restart jeeves',
         'sleep 5',
-        'sudo systemctl status sales_bot',
-        'sudo tail -n 20 /var/log/sales_bot/app.log'
+        'sudo systemctl status jeeves',
+        'sudo tail -n 20 /var/log/jeeves/app.log'
     ) -join '; '
 
     ssh "${RemoteUser}@${RemoteHost}" $commands
