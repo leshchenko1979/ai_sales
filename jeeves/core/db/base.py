@@ -1,10 +1,11 @@
-"""Base database module."""
+"""Base database components."""
 
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from infrastructure.config import DATABASE_URL
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -28,6 +29,16 @@ class BaseQueries:
         """Initialize base queries."""
         self.session = session
 
+    async def _safe_commit(self) -> bool:
+        """Safely commit changes."""
+        try:
+            await self.session.commit()
+            return True
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to commit: {e}")
+            await self.session.rollback()
+            return False
+
 
 @asynccontextmanager
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -35,7 +46,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session() as session:
         try:
             yield session
-            await session.commit()
         except Exception as e:
             await session.rollback()
             logger.error(f"Database error: {e}")

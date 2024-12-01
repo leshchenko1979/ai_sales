@@ -4,7 +4,9 @@ import functools
 import inspect
 import logging
 import re
-from typing import Any, Awaitable, Callable, Tuple, Type, TypeVar, Union
+from typing import Any, Awaitable, Callable, Optional, Tuple, Type, TypeVar, Union
+
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from .base import BaseQueries, get_db
 
@@ -14,12 +16,6 @@ Q = TypeVar("Q", bound=BaseQueries)
 T = TypeVar("T")
 
 QueryClassArg = Union[Type[Q], Tuple[Type[Q], ...], None]
-
-
-def _to_snake_case(name: str) -> str:
-    """Convert CamelCase to snake_case."""
-    pattern = re.compile(r"(?<!^)(?=[A-Z])")
-    return pattern.sub("_", name).lower()
 
 
 def with_queries(
@@ -42,86 +38,28 @@ def with_queries(
 
         @with_queries((UserQueries, PostQueries))  # Pass multiple query classes
         async def func(self, user_queries: UserQueries, post_queries: PostQueries): ...
-
-    Returns:
-        Decorated function that handles session management.
     """
 
     def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-        sig = inspect.signature(func)
-        is_method = "self" in sig.parameters
+        is_method = "self" in inspect.signature(func).parameters
 
         @functools.wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
-            """Wrapper function that manages database session."""
             session = kwargs.pop("session", None)
             external_session = session is not None
 
             try:
                 if not external_session:
                     async with get_db() as session:
-                        if query_class is None:
-                            if is_method:
-                                result = await func(
-                                    args[0], session=session, *args[1:], **kwargs
-                                )
-                            else:
-                                result = await func(session=session, *args, **kwargs)
-                        elif isinstance(query_class, tuple):
-                            # Create instances of all query classes
-                            query_instances = {
-                                f"{_to_snake_case(qc.__name__)}": qc(session)
-                                for qc in query_class
-                            }
-                            if is_method:
-                                result = await func(
-                                    args[0], *args[1:], **query_instances, **kwargs
-                                )
-                            else:
-                                result = await func(*args, **query_instances, **kwargs)
-                        else:
-                            # Single query class
-                            queries = query_class(session)
-                            if is_method:
-                                result = await func(
-                                    args[0], queries=queries, *args[1:], **kwargs
-                                )
-                            else:
-                                result = await func(*args, queries=queries, **kwargs)
-
+                        result = await _execute_with_session(
+                            func, session, args, kwargs, query_class, is_method
+                        )
                         await session.commit()
                         return result
                 else:
-                    # Use provided session
-                    if query_class is None:
-                        if is_method:
-                            result = await func(
-                                args[0], session=session, *args[1:], **kwargs
-                            )
-                        else:
-                            result = await func(session=session, *args, **kwargs)
-                    elif isinstance(query_class, tuple):
-                        # Create instances of all query classes
-                        query_instances = {
-                            f"{_to_snake_case(qc.__name__)}": qc(session)
-                            for qc in query_class
-                        }
-                        if is_method:
-                            result = await func(
-                                args[0], *args[1:], **query_instances, **kwargs
-                            )
-                        else:
-                            result = await func(*args, **query_instances, **kwargs)
-                    else:
-                        # Single query class
-                        queries = query_class(session)
-                        if is_method:
-                            result = await func(
-                                args[0], queries=queries, *args[1:], **kwargs
-                            )
-                        else:
-                            result = await func(*args, queries=queries, **kwargs)
-                    return result
+                    return await _execute_with_session(
+                        func, session, args, kwargs, query_class, is_method
+                    )
 
             except Exception as e:
                 if not external_session and session:
@@ -131,9 +69,69 @@ def with_queries(
 
         return wrapper
 
-    # Handle case when decorator is used without parameters
     if callable(query_class) and not isinstance(query_class, type):
         func, query_class = query_class, None
         return decorator(func)
 
     return decorator
+
+
+def handle_sql_error(operation: str) -> Callable:
+    """Decorator for handling SQL errors in query methods."""
+
+    def decorator(func: Callable[..., T]) -> Callable[..., Optional[T]]:
+        @functools.wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Optional[T]:
+            try:
+                return await func(*args, **kwargs)
+            except IntegrityError as e:
+                logger.error(f"Integrity error during {operation}: {e}")
+                if hasattr(args[0], "session"):
+                    await args[0].session.rollback()
+                return None
+            except SQLAlchemyError as e:
+                logger.error(f"Database error during {operation}: {e}")
+                if hasattr(args[0], "session"):
+                    await args[0].session.rollback()
+                return None
+
+        return wrapper
+
+    return decorator
+
+
+def _to_snake_case(name: str) -> str:
+    """Convert CamelCase to snake_case."""
+    pattern = re.compile(r"(?<!^)(?=[A-Z])")
+    return pattern.sub("_", name).lower()
+
+
+async def _execute_with_session(
+    func: Callable[..., Awaitable[T]],
+    session: Any,
+    args: Tuple[Any, ...],
+    kwargs: dict,
+    query_classes: Optional[Union[Type[Q], Tuple[Type[Q], ...]]] = None,
+    is_method: bool = False,
+) -> T:
+    """Execute function with session management."""
+    if query_classes is None:
+        # Pass raw session
+        if is_method:
+            return await func(args[0], session=session, *args[1:], **kwargs)
+        return await func(session=session, *args, **kwargs)
+
+    if isinstance(query_classes, tuple):
+        # Create instances of all query classes
+        query_instances = {
+            f"{_to_snake_case(qc.__name__)}": qc(session) for qc in query_classes
+        }
+        if is_method:
+            return await func(args[0], *args[1:], **query_instances, **kwargs)
+        return await func(*args, **query_instances, **kwargs)
+
+    # Single query class
+    queries = query_classes(session)
+    if is_method:
+        return await func(args[0], queries=queries, *args[1:], **kwargs)
+    return await func(*args, queries=queries, **kwargs)

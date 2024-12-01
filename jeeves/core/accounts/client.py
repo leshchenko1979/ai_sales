@@ -1,19 +1,20 @@
 """Telegram client for account operations."""
 
-import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Optional
 
 from infrastructure.config import API_HASH, API_ID
 from pyrogram import Client
-from pyrogram.errors import (
-    AuthKeyDuplicated,
-    AuthKeyUnregistered,
-    FloodWait,
-    SessionPasswordNeeded,
-)
+from pyrogram.errors import AuthKeyDuplicated, AuthKeyUnregistered
 from utils.phone import normalize_phone
+
+from .decorators import (
+    handle_auth_errors,
+    handle_flood_wait,
+    log_operation,
+    require_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,129 @@ class AccountClient:
         self._connected = False
         self.phone_code_hash = None
 
+    # Core Operations
+    @log_operation("client_start")
+    async def start(self, check_auth: bool = True) -> bool:
+        """Start client and optionally verify authorization."""
+        try:
+            if self._initialized and self.client:
+                return True
+
+            logger.debug(f"Starting client for {self.phone} (check_auth={check_auth})")
+
+            # Create client instance
+            if not await self._create_client():
+                logger.error(f"Failed to create client for {self.phone}")
+                return False
+
+            # Connect to Telegram
+            if not await self._connect_client():
+                logger.error(f"Failed to connect client for {self.phone}")
+                return False
+
+            if not check_auth:
+                logger.debug(f"Skipping auth check for {self.phone}")
+                self._initialized = True
+                return True
+
+            if self.session_string and not await self._verify_session():
+                return False
+
+            self._initialized = True
+            return True
+
+        except (AuthKeyDuplicated, AuthKeyUnregistered) as e:
+            logger.warning(f"Invalid session for {self.phone}: {e}")
+            await self.stop()
+            return False
+        except Exception as e:
+            logger.error(f"Error starting client for {self.phone}: {e}", exc_info=True)
+            await self.stop()
+            return False
+
+    @log_operation("client_stop")
+    async def stop(self) -> None:
+        """Stop client and cleanup resources."""
+        if not self.client:
+            logger.debug(f"No client instance for {self.phone}")
+            return
+
+        try:
+            await self._disconnect_client()
+            await self._terminate_client()
+        except Exception as e:
+            logger.error(f"Error stopping client for {self.phone}: {e}")
+        finally:
+            self.client = None
+            self._initialized = False
+            self._connected = False
+
+    # Authentication Operations
+    @log_operation("send_code")
+    @handle_auth_errors("send_code")
+    @handle_flood_wait("send_code")
+    @require_client()
+    async def send_code(self) -> bool:
+        """Send authorization code to phone number."""
+        if not await self._connect_client():
+            return False
+
+        sent = await self.client.send_code(self.phone)
+        self.phone_code_hash = sent.phone_code_hash
+        logger.debug(f"Sent code to {self.phone}")
+        return True
+
+    @log_operation("sign_in")
+    @handle_auth_errors("sign_in")
+    @handle_flood_wait("sign_in")
+    @require_client()
+    async def sign_in(self, code: str) -> Optional[str]:
+        """Sign in with received code."""
+        if not self._initialized:
+            return None
+
+        await self.client.sign_in(
+            phone_number=self.phone,
+            phone_code_hash=self.phone_code_hash,
+            phone_code=code,
+        )
+
+        session_string = await self.client.export_session_string()
+        self.session_string = session_string
+        return session_string
+
+    # Message Operations
+    @log_operation("send_message")
+    @handle_flood_wait("send_message", sleep=True)
+    @require_client(initialized=True)
+    async def send_message(self, username: str, message: str) -> bool:
+        """Send message to specified user."""
+        await self.client.send_message(username, message)
+        return True
+
+    @log_operation("get_dialog_messages")
+    @handle_flood_wait("get_dialog_messages", sleep=True)
+    @require_client(initialized=True)
+    async def get_dialog_messages(self, username: str, limit: int = 100) -> list:
+        """Get messages from dialog with user."""
+        messages = []
+        async for message in self.client.get_chat_history(username, limit=limit):
+            messages.append(message)
+        return messages
+
+    # Status Operations
+    @log_operation("check_flood_wait")
+    @handle_flood_wait("check_flood_wait", return_time=True)
+    @require_client(initialized=True)
+    async def check_flood_wait(self) -> Optional[datetime]:
+        """Check if account is in flood wait state."""
+        if not self._initialized:
+            return None
+
+        await self.client.get_me()
+        return None
+
+    # Helper Methods
     async def _create_client(self) -> bool:
         """Create Pyrogram client instance."""
         try:
@@ -64,207 +188,38 @@ class AccountClient:
             )
             return False
 
-    async def start(self, check_auth: bool = True) -> bool:
-        """
-        Start client.
-
-        Args:
-            check_auth: If True, verify authorization status.
-                      If False, just create and connect client without checking auth.
-        """
+    async def _verify_session(self) -> bool:
+        """Verify existing session."""
         try:
-            if self._initialized and self.client:
-                return True
-
-            logger.debug(f"Starting client for {self.phone} (check_auth={check_auth})")
-
-            # Create client instance
-            if not await self._create_client():
-                return False
-
-            # Connect to Telegram
-            if not await self._connect_client():
-                return False
-
-            if not check_auth:
-                logger.debug(f"Skipping auth check for {self.phone}")
-                self._initialized = True
-                return True
-
-            # Verify session if exists
-            if self.session_string:
-                try:
-                    me = await self.client.get_me()
-                    logger.debug(f"Successfully connected to account {me.phone_number}")
-                except Exception as e:
-                    logger.error(f"Failed to verify session: {e}")
-                    await self.stop()
-                    return False
-
-            self._initialized = True
+            me = await self.client.get_me()
+            logger.debug(f"Successfully connected to account {me.phone_number}")
             return True
-
-        except (AuthKeyDuplicated, AuthKeyUnregistered) as e:
-            logger.warning(f"Invalid session for {self.phone}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to verify session: {e}")
             await self.stop()
             return False
 
-        except Exception as e:
-            logger.error(f"Error starting client for {self.phone}: {e}", exc_info=True)
-            await self.stop()
-            return False
-
-    async def stop(self):
-        """Stop client."""
-        if not self.client:
-            logger.debug(f"No client instance for {self.phone}")
-            return
-
-        try:
-            if self._connected:
-                logger.debug(f"Disconnecting client for {self.phone}")
-                try:
-                    await self.client.disconnect()
-                except Exception as e:
-                    if "already terminated" in str(e):
-                        logger.debug(f"Client {self.phone} is already disconnected")
-                    else:
-                        logger.error(f"Error disconnecting client: {e}")
-                self._connected = False
-
-            if hasattr(self.client, "terminate"):
-                logger.debug(f"Terminating client for {self.phone}")
-                try:
-                    await self.client.terminate()
-                except Exception as e:
-                    if "already terminated" in str(e):
-                        logger.debug(f"Client {self.phone} is already terminated")
-                    else:
-                        logger.error(f"Error terminating client: {e}")
-
-        except Exception as e:
-            logger.error(f"Error stopping client for {self.phone}: {e}")
-        finally:
-            self.client = None
-            self._initialized = False
+    async def _disconnect_client(self) -> None:
+        """Disconnect client from Telegram."""
+        if self._connected:
+            logger.debug(f"Disconnecting client for {self.phone}")
+            try:
+                await self.client.disconnect()
+            except Exception as e:
+                if "already terminated" in str(e):
+                    logger.debug(f"Client {self.phone} is already disconnected")
+                else:
+                    logger.error(f"Error disconnecting client: {e}")
             self._connected = False
 
-    async def send_code(self) -> bool:
-        """Send authorization code."""
-        try:
-            if not self.client:
-                logger.error("Client not initialized")
-                return False
-
-            # Make sure client is connected
-            if not await self._connect_client():
-                return False
-
-            # Send code
-            sent = await self.client.send_code(self.phone)
-            self.phone_code_hash = sent.phone_code_hash
-            logger.debug(f"Sent code to {self.phone}")
-            return True
-
-        except FloodWait as e:
-            logger.warning(f"FloodWait for {self.phone}: {e.value} seconds")
-            return False
-
-        except Exception as e:
-            logger.error(f"Error sending code to {self.phone}: {e}", exc_info=True)
-            return False
-
-    async def sign_in(self, code: str) -> Optional[str]:
-        """Sign in with code."""
-        try:
-            if not self.client or not self._initialized:
-                return None
-
-            # Try to sign in
-            await self.client.sign_in(
-                phone_number=self.phone,
-                phone_code_hash=self.phone_code_hash,
-                phone_code=code,
-            )
-
-            # Get session string
-            session_string = await self.client.export_session_string()
-            self.session_string = session_string
-            return session_string
-
-        except SessionPasswordNeeded:
-            logger.warning(f"2FA password required for {self.phone}")
-            return None
-
-        except FloodWait as e:
-            logger.warning(f"FloodWait for {self.phone}: {e.value} seconds")
-            return None
-
-        except Exception as e:
-            logger.error(f"Error signing in {self.phone}: {e}", exc_info=True)
-            return None
-
-    async def check_flood_wait(self) -> Optional[datetime]:
-        """Check if account is in flood wait."""
-        try:
-            if not self.client or not self._initialized:
-                return None
-
-            # Try to get me (lightweight request)
-            await self.client.get_me()
-            return None
-
-        except FloodWait as e:
-            # Return flood wait end time in UTC
-            return datetime.now(timezone.utc) + timedelta(seconds=e.value)
-
-        except Exception as e:
-            logger.error(
-                f"Error checking flood wait for {self.phone}: {e}", exc_info=True
-            )
-            return None
-
-    async def send_message(self, username: str, message: str) -> bool:
-        """Send message to user."""
-        try:
-            if not self.client:
-                return False
-
-            # Send message
-            await self.client.send_message(username, message)
-            return True
-
-        except FloodWait as e:
-            logger.warning(f"FloodWait for {self.phone}: {e.value} seconds")
-            return False
-
-        except Exception as e:
-            logger.error(
-                f"Error sending message from {self.phone} to {username}: {e}",
-                exc_info=True,
-            )
-            return False
-
-    async def get_dialog_messages(self, username: str, limit: int = 100) -> list:
-        """Get messages from dialog."""
-        try:
-            if not self.client:
-                return []
-
-            # Get messages
-            messages = []
-            async for message in self.client.get_chat_history(username, limit=limit):
-                messages.append(message)
-            return messages
-
-        except FloodWait as e:
-            logger.warning(f"FloodWait for {self.phone}: {e.value} seconds")
-            await asyncio.sleep(e.value)
-            return []
-
-        except Exception as e:
-            logger.error(
-                f"Error getting messages from {self.phone} with {username}: {e}",
-                exc_info=True,
-            )
-            return []
+    async def _terminate_client(self) -> None:
+        """Terminate client instance."""
+        if hasattr(self.client, "terminate"):
+            logger.debug(f"Terminating client for {self.phone}")
+            try:
+                await self.client.terminate()
+            except Exception as e:
+                if "already terminated" in str(e):
+                    logger.debug(f"Client {self.phone} is already terminated")
+                else:
+                    logger.error(f"Error terminating client: {e}")

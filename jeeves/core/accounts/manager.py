@@ -1,14 +1,27 @@
 """Account manager."""
 
+# Standard library
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import TYPE_CHECKING, Optional
 
-from core.accounts.client_manager import ClientManager
-from core.accounts.models.account import Account, AccountStatus
-from core.accounts.queries.account import AccountQueries
-from core.accounts.queries.profile import ProfileQueries
+# Core dependencies
 from core.db import with_queries
+
+from .client_manager import ClientManager
+
+# Local imports
+from .models.account import Account, AccountStatus
+from .queries.account import AccountQueries
+from .queries.profile import ProfileQueries
+
+# Type hints
+if TYPE_CHECKING:
+    from pyrogram.types import User
+
+    from .client import AccountClient
+    from .models.profile import AccountProfile
 
 logger = logging.getLogger(__name__)
 
@@ -17,181 +30,110 @@ class AccountManager:
     """Account manager."""
 
     def __init__(self):
-        """Initialize manager."""
         self.client_manager = ClientManager()
-        logger.debug("AccountManager initialized")
 
     @with_queries(AccountQueries)
-    async def get_or_create_account(
-        self, phone: str, queries: AccountQueries
-    ) -> Optional[Account]:
-        """
-        Get or create account.
-
-        Args:
-            phone: Phone number
-            queries: Account queries
-
-        Returns:
-            Account if successful, None otherwise
-        """
+    async def request_code(self, phone: str, queries: AccountQueries) -> bool:
+        """Request authorization code."""
         try:
-            logger.debug(f"Getting or creating account for {phone}")
-            # Get or create account
-            account = await queries.get_account_by_phone(phone)
+            account = await self._get_or_create_account(phone, queries)
             if not account:
-                logger.debug(f"Creating new account for {phone}")
-                account = Account(phone=phone)
+                return False
+
+            async with self._get_client(phone) as client:
+                if not client or not await client.send_code():
+                    return False
+
+                account.status = AccountStatus.code_requested
                 queries.session.add(account)
-            else:
-                logger.debug(f"Found existing account for {phone}: {account}")
-            return account
+                return True
 
         except Exception as e:
-            logger.error(f"Error getting/creating account {phone}: {e}", exc_info=True)
-            return None
-
-    @with_queries((AccountQueries, ProfileQueries))
-    async def update_account_profile(
-        self,
-        phone: str,
-        first_name: Optional[str] = None,
-        last_name: Optional[str] = None,
-        bio: Optional[str] = None,
-        photo_path: Optional[str] = None,
-        account_queries: AccountQueries = None,
-        profile_queries: ProfileQueries = None,
-    ) -> bool:
-        """Update account profile both in Telegram and database."""
-        try:
-            # Get account
-            account = await self.get_or_create_account(phone)
-            if not account:
-                return False
-
-            # Update Telegram profile
-            client = await self.client_manager.get_client(phone, account.session_string)
-            if not client:
-                return False
-
-            if not await client.update_profile(
-                first_name=first_name,
-                last_name=last_name,
-                bio=bio,
-                photo_path=photo_path,
-            ):
-                return False
-
-            # Get or create profile
-            profile = await profile_queries.get_account_profile(
-                account.id
-            ) or await profile_queries.create_profile(account.id)
-            if not profile:
-                return False
-
-            # Update profile data
-            if first_name is not None:
-                profile.first_name = first_name
-            if last_name is not None:
-                profile.last_name = last_name
-            if bio is not None:
-                profile.bio = bio
-            if photo_path is not None:
-                profile.photo_path = photo_path
-
-            profile.is_synced = True
-            profile.last_synced_at = datetime.now(timezone.utc)
-            profile_queries.session.add(profile)
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Error updating profile for {phone}: {e}")
+            logger.error(f"Error in request_code for {phone}: {e}", exc_info=True)
             return False
 
-    @with_queries((AccountQueries, ProfileQueries))
-    async def get_account_profile(
-        self,
-        phone: str,
-        account_queries: AccountQueries,
-        profile_queries: ProfileQueries,
-    ) -> Optional[dict]:
-        """Get account profile info."""
+    @with_queries(AccountQueries)
+    async def authorize_account(
+        self, phone: str, code: str, queries: AccountQueries
+    ) -> bool:
+        """Authorize account with code."""
         try:
-            # Get account
-            account = await self.get_or_create_account(phone)
+            account = await self._get_or_create_account(phone, queries)
             if not account:
-                return None
+                return False
 
-            # Get current Telegram profile
-            client = await self.client_manager.get_client(phone, account.session_string)
-            if not client:
-                return None
+            async with self._get_client(phone) as client:
+                if not client:
+                    return False
 
-            profile = await client.get_profile()
-            if not profile:
-                return None
+                session_string = await client.sign_in(code)
+                if not session_string:
+                    return False
 
-            # Get database profile
-            db_profile = await profile_queries.get_account_profile(account.id)
-            if db_profile:
-                profile["photo_path"] = db_profile.photo_path
-
-            return profile
+                self._update_account_status(account, session_string)
+                queries.session.add(account)
+                await self.client_manager.release_client(phone)
+                return True
 
         except Exception as e:
-            logger.error(f"Error getting profile for {phone}: {e}")
-            return None
+            logger.error(f"Error in authorize_account for {phone}: {e}", exc_info=True)
+            return False
 
-    @with_queries((AccountQueries, ProfileQueries))
-    async def sync_account_profile(
-        self,
-        phone: str,
-        account_queries: AccountQueries,
-        profile_queries: ProfileQueries,
-    ) -> bool:
+    @with_queries(ProfileQueries)
+    async def sync_account_profile(self, phone: str, queries: ProfileQueries) -> bool:
         """Sync account profile with Telegram."""
         try:
-            # Get account
-            account = await self.get_or_create_account(phone)
+            account = await self._get_or_create_account(phone)
             if not account:
                 return False
 
-            # Get current profile from Telegram
-            client = await self.client_manager.get_client(phone, account.session_string)
-            if not client:
-                return False
+            async with self._get_client(phone, account.session_string) as client:
+                if not client:
+                    return False
 
-            try:
-                # Get Telegram profile
                 me = await client.client.get_me()
                 if not me:
                     return False
 
-                # Get or create database profile
-                profile = await profile_queries.get_account_profile(
-                    account.id
-                ) or await profile_queries.create_profile(account.id)
+                profile = await self._get_or_create_profile(account.id, queries)
                 if not profile:
                     return False
 
-                # Update profile data
-                profile.username = me.username or ""
-                profile.first_name = me.first_name or ""
-                profile.last_name = me.last_name or ""
-                profile.bio = me.bio or ""
-                profile.is_synced = True
-                profile.last_synced_at = datetime.now(timezone.utc)
-                profile.last_telegram_update = datetime.now(timezone.utc)
+                profile_data = await self._get_profile_data(client, me)
+                await self._update_profile_data(profile, **profile_data)
+                queries.session.add(profile)
 
-                profile_queries.session.add(profile)
+                logger.info(f"Successfully synced profile for {phone}")
                 return True
 
-            finally:
-                await client.stop()
+        except Exception as e:
+            logger.error(f"Error syncing profile for {phone}: {e}", exc_info=True)
+            return False
+
+    @with_queries(ProfileQueries)
+    async def update_account_profile(
+        self, phone: str, queries: ProfileQueries, **profile_data
+    ) -> bool:
+        """Update account profile both in Telegram and database."""
+        try:
+            account = await self._get_or_create_account(phone)
+            if not account:
+                return False
+
+            async with self._get_client(phone, account.session_string) as client:
+                if not client or not await client.update_profile(**profile_data):
+                    return False
+
+                profile = await self._get_or_create_profile(account.id, queries)
+                if not profile:
+                    return False
+
+                await self._update_profile_data(profile, **profile_data)
+                queries.session.add(profile)
+                return True
 
         except Exception as e:
-            logger.error(f"Error syncing profile for {phone}: {e}")
+            logger.error(f"Error updating profile for {phone}: {e}")
             return False
 
     @with_queries(AccountQueries)
@@ -204,9 +146,7 @@ class AccountManager:
             if not account:
                 return False
 
-            account.messages_sent += 1
-            account.daily_messages += 1
-            account.last_used_at = datetime.now(timezone.utc)
+            self._increment_account_messages(account)
             queries.session.add(account)
             return True
 
@@ -214,224 +154,81 @@ class AccountManager:
             logger.error(f"Failed to increment messages for account {account_id}: {e}")
             return False
 
-    @with_queries((AccountQueries, ProfileQueries))
-    async def update_profile(
-        self,
-        account_id: int,
-        account_queries: AccountQueries,
-        profile_queries: ProfileQueries,
-    ) -> bool:
-        """Update account profile from Telegram."""
+    # Helper methods
+    @staticmethod
+    async def _get_or_create_account(
+        phone: str, queries: AccountQueries
+    ) -> Optional[Account]:
+        """Get or create account by phone number."""
         try:
-            account = await account_queries.get_account_by_id(account_id)
+            account = await queries.get_account_by_phone(phone)
             if not account:
-                return False
-
-            profile = await profile_queries.get_account_profile(account_id)
-            if not profile:
-                return False
-
-            profile.last_synced_at = datetime.now(timezone.utc)
-            profile_queries.session.add(profile)
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to update profile for account {account_id}: {e}")
-            return False
-
-    @with_queries(AccountQueries)
-    async def request_code(self, phone: str, queries: AccountQueries) -> bool:
-        """
-        Request authorization code.
-
-        Args:
-            phone: Phone number
-            queries: Account queries
-
-        Returns:
-            bool: True if successful
-        """
-        try:
-            logger.debug(f"Starting code request for {phone}")
-
-            # Get account
-            account = await self.get_or_create_account(phone)
-            if not account:
-                logger.error(f"Failed to get/create account for {phone}")
-                return False
-
-            logger.debug(f"Current account status: {account.status}")
-
-            # Get client
-            logger.debug(f"Getting client for {phone}")
-            client = await self.client_manager.get_client(phone)
-            if not client:
-                logger.error(f"Failed to get client for {phone}")
-                return False
-
-            try:
-                # Send code
-                logger.debug(f"Sending code to {phone}")
-                if not await client.send_code():
-                    logger.error(f"Failed to send code to {phone}")
-                    return False
-
-                # Update status
-                logger.debug(f"Updating account status for {phone}")
-                account.status = AccountStatus.code_requested
+                account = Account(phone=phone)
                 queries.session.add(account)
-                logger.debug(f"Code successfully requested for {phone}")
-                return True
-
-            except Exception as e:
-                logger.error(f"Error requesting code: {e}", exc_info=True)
-                return False
-
-        except Exception as e:
-            logger.error(f"Error in request_code for {phone}: {e}", exc_info=True)
-            return False
-
-    @with_queries(AccountQueries)
-    async def authorize_account(
-        self, phone: str, code: str, queries: AccountQueries
-    ) -> bool:
-        """
-        Authorize account with code.
-
-        Args:
-            phone: Phone number
-            code: Authorization code
-            queries: Account queries
-
-        Returns:
-            bool: True if successful
-        """
-        try:
-            logger.debug(f"Starting authorization for {phone}")
-
-            # Get account
-            account = await self.get_or_create_account(phone)
-            if not account:
-                logger.error(f"Failed to get/create account for {phone}")
-                return False
-
-            logger.debug(f"Current account status: {account.status}")
-
-            # Get client
-            logger.debug(f"Getting client for {phone}")
-            client = await self.client_manager.get_client(phone)
-            if not client:
-                logger.error(f"Failed to get client for {phone}")
-                return False
-
-            try:
-                # Sign in
-                logger.debug(f"Attempting to sign in {phone}")
-                session_string = await client.sign_in(code)
-                if not session_string:
-                    logger.error(f"Failed to sign in {phone}")
-                    return False
-
-                # Update account
-                logger.debug(f"Updating account data for {phone}")
-                account.session_string = session_string
-                account.status = AccountStatus.active
-                account.last_used = datetime.now(timezone.utc)
-                queries.session.add(account)
-
-                logger.debug(f"Successfully authorized {phone}")
-                return True
-
-            except Exception as e:
-                logger.error(f"Error in sign in: {e}", exc_info=True)
-                return False
-
-            finally:
-                # Only release client if authorization was successful
-                if account.status == AccountStatus.active:
-                    logger.debug(f"Releasing client for {phone} after successful auth")
-                    await self.client_manager.release_client(phone)
-                else:
-                    logger.debug(
-                        f"Keeping client for {phone} as auth was not successful"
-                    )
-
-        except Exception as e:
-            logger.error(f"Error in authorize_account for {phone}: {e}", exc_info=True)
-            return False
-
-    @with_queries(AccountQueries)
-    async def get_available_account(self, queries: AccountQueries) -> Optional[Account]:
-        """
-        Get available account.
-
-        Args:
-            queries: Account queries
-
-        Returns:
-            Account if found, None otherwise
-        """
-        try:
-            # Get active account with least recent usage
-            account = await queries.get_available_account()
-            if not account:
-                return None
-
-            # Update last used
-            account.last_used = datetime.now(timezone.utc)
-            queries.session.add(account)
-
             return account
-
         except Exception as e:
-            logger.error(f"Error getting available account: {e}", exc_info=True)
+            logger.error(f"Error getting/creating account {phone}: {e}", exc_info=True)
             return None
 
-    @with_queries(AccountQueries)
-    async def check_flood_wait(self, phone: str, queries: AccountQueries) -> bool:
-        """
-        Check if account is in flood wait.
-
-        Args:
-            phone: Phone number
-            queries: Account queries
-
-        Returns:
-            bool: True if successful
-        """
+    @staticmethod
+    async def _get_or_create_profile(
+        account_id: int, queries: ProfileQueries
+    ) -> Optional["AccountProfile"]:
+        """Get or create profile for account."""
         try:
-            # Get account
-            account = await self.get_or_create_account(phone)
-            if not account:
-                return False
-
-            # Get client
-            client = await self.client_manager.get_client(phone, account.session_string)
-            if not client:
-                return False
-
-            try:
-                # Check flood wait
-                flood_wait = await client.check_flood_wait()
-
-                # Update account
-                account.flood_wait_until = flood_wait or None
-                queries.session.add(account)
-
-                return True
-
-            finally:
-                await self.client_manager.release_client(phone)
-
+            return await queries.get_account_profile(
+                account_id
+            ) or await queries.create_profile(account_id)
         except Exception as e:
-            logger.error(f"Error checking flood wait for {phone}: {e}", exc_info=True)
-            return False
+            logger.error(
+                f"Error getting/creating profile for account {account_id}: {e}"
+            )
+            return None
 
-    @with_queries(AccountQueries)
-    async def get_available_accounts(self, queries: AccountQueries) -> List[Account]:
-        """Get list of available accounts."""
+    @asynccontextmanager
+    async def _get_client(self, phone: str, session_string: Optional[str] = None):
+        """Get client with automatic cleanup."""
+        client = None
         try:
-            return await queries.get_available_accounts()
+            client = await self.client_manager.get_client(phone, session_string)
+            yield client
+        finally:
+            if client:
+                await client.stop()
+
+    @staticmethod
+    async def _get_profile_data(client: "AccountClient", me: "User") -> dict:
+        """Get profile data from Telegram."""
+        bio = None
+        try:
+            full_user = await client.client.get_chat(me.id)
+            bio = getattr(full_user, "bio", None)
         except Exception as e:
-            logger.error(f"Failed to get available accounts: {e}")
-            return []
+            logger.error(f"Error getting bio: {e}")
+
+        return {
+            "username": me.username,
+            "first_name": me.first_name,
+            "last_name": me.last_name,
+            "bio": bio,
+        }
+
+    @staticmethod
+    async def _update_profile_data(profile: "AccountProfile", **kwargs) -> None:
+        """Update profile data with current timestamp."""
+        now = datetime.now(timezone.utc)
+        profile.update_data(**kwargs, synced_at=now, telegram_update=now)
+
+    @staticmethod
+    def _update_account_status(account: Account, session_string: str) -> None:
+        """Update account status after successful authorization."""
+        account.session_string = session_string
+        account.status = AccountStatus.active
+        account.last_used_at = datetime.now(timezone.utc)
+
+    @staticmethod
+    def _increment_account_messages(account: Account) -> None:
+        """Increment account message counters."""
+        account.messages_sent += 1
+        account.daily_messages += 1
+        account.last_used_at = datetime.now(timezone.utc)

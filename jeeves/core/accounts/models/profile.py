@@ -111,6 +111,26 @@ class AccountProfile(Base):
         """String representation."""
         return f"AccountProfile(id={self.id}, account_id={self.account_id})"
 
+    def update_data(
+        self,
+        username: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        bio: Optional[str] = None,
+        synced_at: Optional[datetime] = None,
+        telegram_update: Optional[datetime] = None,
+    ) -> None:
+        """Update profile data."""
+        self.username = username or ""
+        self.first_name = first_name or ""
+        self.last_name = last_name or ""
+        self.bio = bio or ""
+        self.is_synced = True
+        if synced_at:
+            self.last_synced_at = synced_at
+        if telegram_update:
+            self.last_telegram_update = telegram_update
+
 
 class ProfileHistory(Base):
     """History of profile changes."""

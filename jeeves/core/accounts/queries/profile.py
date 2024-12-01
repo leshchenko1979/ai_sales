@@ -3,67 +3,74 @@
 import logging
 from typing import List, Optional, Sequence
 
-from core.accounts.models.profile import AccountProfile, ProfileHistory, ProfileTemplate
-from core.db import BaseQueries
+from core import db
+from core.accounts import models
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Load
 
 logger = logging.getLogger(__name__)
 
 
-class ProfileQueries(BaseQueries):
+class ProfileQueries(db.BaseQueries):
     """Queries for profile templates and account profiles."""
 
+    # Core Profile Operations
+    @db.decorators.handle_sql_error("get_account_profile")
+    async def get_account_profile(
+        self, account_id: int
+    ) -> Optional[models.AccountProfile]:
+        """Get account profile by account ID."""
+        result = await self.session.execute(
+            select(models.AccountProfile).where(
+                models.AccountProfile.account_id == account_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @db.decorators.handle_sql_error("create_profile")
+    async def create_profile(self, account_id: int) -> Optional[models.AccountProfile]:
+        """Create new empty profile for account."""
+        profile = self._create_profile_obj(account_id)
+        self.session.add(profile)
+        await self.session.flush()
+        return profile
+
+    @db.decorators.handle_sql_error("apply_template")
+    async def apply_template(
+        self, account_id: int, template_id: int
+    ) -> Optional[models.AccountProfile]:
+        """Apply template to account profile."""
+        template = await self.session.get(models.ProfileTemplate, template_id)
+        if not template or not template.is_active:
+            logger.error(f"Template {template_id} not found or inactive")
+            return None
+
+        profile = await self.get_account_profile(account_id)
+        if not profile:
+            profile = self._create_profile_obj(account_id)
+            self.session.add(profile)
+
+        self._apply_template_to_profile(profile, template)
+        await self.session.flush()
+
+        await self._create_profile_history(profile, template)
+        return profile
+
+    # Bulk Profile Operations
+    @db.decorators.handle_sql_error("get_all_profiles")
     async def get_all_profiles(
         self, options: Optional[Sequence[Load]] = None
-    ) -> List[AccountProfile]:
-        """Get all account profiles.
+    ) -> List[models.AccountProfile]:
+        """Get all account profiles."""
+        query = select(models.AccountProfile).order_by(models.AccountProfile.account_id)
+        if options:
+            for option in options:
+                query = query.options(option)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
 
-        Args:
-            options: Optional sequence of relationship loading options
-        """
-        try:
-            query = select(AccountProfile).order_by(AccountProfile.account_id)
-            if options:
-                for option in options:
-                    query = query.options(option)
-
-            result = await self.session.execute(query)
-            return list(result.scalars().all())
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to get profiles: {e}")
-            return []
-
-    async def get_account_profile(self, account_id: int) -> Optional[AccountProfile]:
-        """Get account profile by account ID."""
-        try:
-            result = await self.session.execute(
-                select(AccountProfile).where(AccountProfile.account_id == account_id)
-            )
-            return result.scalar_one_or_none()
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to get profile for account {account_id}: {e}")
-            return None
-
-    async def create_profile(self, account_id: int) -> Optional[AccountProfile]:
-        """Create new empty profile for account."""
-        try:
-            profile = AccountProfile(
-                account_id=account_id,
-                username="",
-                first_name="",
-                last_name="",
-                bio="",
-            )
-            self.session.add(profile)
-            await self.session.flush()
-            return profile
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to create profile for account {account_id}: {e}")
-            await self.session.rollback()
-            return None
-
+    # Template Operations
+    @db.decorators.handle_sql_error("create_template")
     async def create_template(
         self,
         name: str,
@@ -71,85 +78,78 @@ class ProfileQueries(BaseQueries):
         last_name: Optional[str] = None,
         bio: Optional[str] = None,
         photo_path: Optional[str] = None,
-    ) -> Optional[ProfileTemplate]:
+    ) -> Optional[models.ProfileTemplate]:
         """Create new profile template."""
-        try:
-            template = ProfileTemplate(
-                name=name,
-                first_name=first_name,
-                last_name=last_name,
-                bio=bio,
-                photo_path=photo_path,
-            )
-            self.session.add(template)
-            await self.session.flush()
-            return template
-        except IntegrityError:
-            logger.error(f"Template with name {name} already exists")
-            await self.session.rollback()
-            return None
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to create template {name}: {e}")
-            await self.session.rollback()
-            return None
+        template = self._create_template_obj(
+            name, first_name, last_name, bio, photo_path
+        )
+        self.session.add(template)
+        await self.session.flush()
+        return template
 
-    async def get_active_templates(self) -> List[ProfileTemplate]:
+    @db.decorators.handle_sql_error("get_active_templates")
+    async def get_active_templates(self) -> List[models.ProfileTemplate]:
         """Get all active profile templates."""
-        try:
-            result = await self.session.execute(
-                select(ProfileTemplate)
-                .where(ProfileTemplate.is_active.is_(True))
-                .order_by(ProfileTemplate.name)
-            )
-            return list(result.scalars().all())
-        except SQLAlchemyError as e:
-            logger.error(f"Failed to get active templates: {e}")
-            return []
+        result = await self.session.execute(
+            select(models.ProfileTemplate)
+            .where(models.ProfileTemplate.is_active.is_(True))
+            .order_by(models.ProfileTemplate.name)
+        )
+        return list(result.scalars().all())
 
-    async def apply_template(
-        self, account_id: int, template_id: int
-    ) -> Optional[AccountProfile]:
-        """Apply template to account profile."""
-        try:
-            # Get template and profile in a single transaction
-            template = await self.session.get(ProfileTemplate, template_id)
-            if not template or not template.is_active:
-                logger.error(f"Template {template_id} not found or inactive")
-                return None
+    # Factory Methods
+    @staticmethod
+    def _create_profile_obj(account_id: int) -> models.AccountProfile:
+        """Create AccountProfile object."""
+        return models.AccountProfile(
+            account_id=account_id,
+            username="",
+            first_name="",
+            last_name="",
+            bio="",
+        )
 
-            profile = await self.get_account_profile(account_id) or AccountProfile(
-                account_id=account_id
-            )
+    @staticmethod
+    def _create_template_obj(
+        name: str,
+        first_name: str,
+        last_name: Optional[str] = None,
+        bio: Optional[str] = None,
+        photo_path: Optional[str] = None,
+    ) -> models.ProfileTemplate:
+        """Create ProfileTemplate object."""
+        return models.ProfileTemplate(
+            name=name,
+            first_name=first_name,
+            last_name=last_name,
+            bio=bio,
+            photo_path=photo_path,
+        )
 
-            # Copy template data
-            profile.template_id = template.id
-            profile.first_name = template.first_name
-            profile.last_name = template.last_name
-            profile.bio = template.bio
-            profile.photo_path = template.photo_path
-            profile.is_synced = False
+    # Helper Methods
+    def _apply_template_to_profile(
+        self, profile: models.AccountProfile, template: models.ProfileTemplate
+    ) -> None:
+        """Apply template data to profile."""
+        profile.template_id = template.id
+        profile.first_name = template.first_name
+        profile.last_name = template.last_name
+        profile.bio = template.bio
+        profile.photo_path = template.photo_path
+        profile.is_synced = False
 
-            self.session.add(profile)
-            await self.session.flush()
-
-            # Create history record
-            history = ProfileHistory(
-                profile_id=profile.id,
-                template_id=template.id,
-                first_name=profile.first_name,
-                last_name=profile.last_name,
-                bio=profile.bio,
-                photo_path=profile.photo_path,
-                change_type="template_applied",
-            )
-            self.session.add(history)
-            await self.session.flush()
-
-            return profile
-
-        except SQLAlchemyError as e:
-            logger.error(
-                f"Failed to apply template {template_id} to account {account_id}: {e}"
-            )
-            await self.session.rollback()
-            return None
+    async def _create_profile_history(
+        self, profile: models.AccountProfile, template: models.ProfileTemplate
+    ) -> None:
+        """Create profile history record."""
+        history = models.ProfileHistory(
+            profile_id=profile.id,
+            template_id=template.id,
+            first_name=profile.first_name,
+            last_name=profile.last_name,
+            bio=profile.bio,
+            photo_path=profile.photo_path,
+            change_type="template_applied",
+        )
+        self.session.add(history)
+        await self.session.flush()

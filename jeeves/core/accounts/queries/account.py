@@ -41,37 +41,12 @@ class AccountQueries(BaseQueries):
             logger.error(f"Failed to get account by phone {phone}: {e}")
             return None
 
-    async def get_all_accounts(self) -> list[Account]:
-        """Get all accounts."""
+    async def _create_account(
+        self, phone: str, status: AccountStatus
+    ) -> Optional[Account]:
+        """Internal method to create an account."""
         try:
-            query = select(Account).order_by(Account.id)
-            result = await self.session.execute(query)
-            return list(result.scalars().all())
-        except Exception as e:
-            logger.error(f"Failed to get all accounts: {e}")
-            return []
-
-    async def get_active_accounts(self) -> List[Account]:
-        """Get all active accounts."""
-        try:
-            query = (
-                select(Account)
-                .where(Account.status == AccountStatus.active)
-                .order_by(Account.last_used_at.asc().nullsfirst())
-            )
-            result = await self.session.execute(query)
-            return list(result.scalars().all())
-        except Exception as e:
-            logger.error(f"Failed to get active accounts: {e}")
-            return []
-
-    async def create_account(self, phone: str) -> Optional[Account]:
-        """Create new account."""
-        try:
-            account = Account(
-                phone=phone,
-                status=AccountStatus.new,
-            )
+            account = Account(phone=phone, status=status)
             self.session.add(account)
             await self.session.commit()
             return account
@@ -80,24 +55,14 @@ class AccountQueries(BaseQueries):
             await self.session.rollback()
             return None
 
+    async def create_account(self, phone: str) -> Optional[Account]:
+        """Create new account."""
+        return await self._create_account(phone, AccountStatus.new)
+
     async def get_or_create_account(self, phone: str) -> Optional[Account]:
         """Get or create account by phone number."""
-        try:
-            account = await self.get_account_by_phone(phone)
-            if account:
-                return account
-
-            account = Account(
-                phone=phone,
-                status=AccountStatus.active,
-            )
-            self.session.add(account)
-            await self.session.commit()
-            return account
-        except Exception as e:
-            logger.error(f"Failed to get or create account for {phone}: {e}")
-            await self.session.rollback()
-            return None
+        account = await self.get_account_by_phone(phone)
+        return account or await self._create_account(phone, AccountStatus.active)
 
     async def get_available_account(self) -> Optional[Account]:
         """Get available account for messaging."""
@@ -105,14 +70,14 @@ class AccountQueries(BaseQueries):
             query = (
                 select(Account)
                 .where(
-                    Account.status == AccountStatus.active,
-                    Account.session_string.is_not(None),  # Has session
-                    (Account.daily_messages < 40)
-                    | (Account.daily_messages.is_(None)),  # Under message limit
+                    and_(
+                        Account.status == AccountStatus.active,
+                        Account.session_string.is_not(None),
+                        (Account.daily_messages < 40)
+                        | (Account.daily_messages.is_(None)),
+                    )
                 )
-                .order_by(
-                    Account.last_used_at.asc().nullsfirst()
-                )  # Prefer accounts not used recently
+                .order_by(Account.last_used_at.asc().nullsfirst())
             )
             result = await self.session.execute(query)
             return result.scalar_one_or_none()
@@ -120,18 +85,43 @@ class AccountQueries(BaseQueries):
             logger.error(f"Failed to get available account: {e}", exc_info=True)
             return None
 
+    async def get_accounts_by_status(self, status: AccountStatus) -> List[Account]:
+        """Get accounts by status."""
+        try:
+            query = (
+                select(Account)
+                .where(Account.status == status)
+                .order_by(Account.last_used_at.asc().nullsfirst())
+            )
+            result = await self.session.execute(query)
+            return list(result.scalars().all())
+        except Exception as e:
+            logger.error(f"Failed to get {status} accounts: {e}")
+            return []
+
+    async def get_all_accounts(self) -> List[Account]:
+        """Get all accounts."""
+        return await self.get_accounts_by_status(None)
+
+    async def get_active_accounts(self) -> List[Account]:
+        """Get all active accounts."""
+        return await self.get_accounts_by_status(AccountStatus.active)
+
     async def get_available_accounts(self) -> List[Account]:
         """Get all available accounts."""
-        stmt = (
-            select(Account)
-            .where(
-                and_(
-                    Account.status == AccountStatus.active,
-                    Account.session_string.is_not(None),
+        try:
+            query = (
+                select(Account)
+                .where(
+                    and_(
+                        Account.status == AccountStatus.active,
+                        Account.session_string.is_not(None),
+                    )
                 )
+                .order_by(Account.last_used_at.asc())
             )
-            .order_by(Account.last_used_at.asc())
-        )
-
-        result = await self.session.execute(stmt)
-        return result.scalars().all()
+            result = await self.session.execute(query)
+            return list(result.scalars().all())
+        except Exception as e:
+            logger.error(f"Failed to get available accounts: {e}")
+            return []

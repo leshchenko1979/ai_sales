@@ -1,22 +1,25 @@
-"""Account management module."""
+"""Account management functionality."""
 
-from .client import AccountClient
+# Models
+# Core functionality
+from .client_manager import ClientManager
 from .manager import AccountManager
-from .models import Account, AccountStatus
-from .monitoring import AccountMonitor
-from .notifications import AccountNotifier
-from .rotation import AccountRotation
-from .safety import AccountSafety
-from .warmup import AccountWarmup
+from .models.account import Account, AccountStatus
+from .monitor import AccountMonitor
 
-__all__ = [
+# Database
+from .queries.account import AccountQueries
+from .queries.profile import ProfileQueries
+
+__all__ = (
+    # Models
     "Account",
     "AccountStatus",
-    "AccountClient",
+    # Database
+    "AccountQueries",
+    "ProfileQueries",
+    # Core functionality
+    "ClientManager",
     "AccountManager",
     "AccountMonitor",
-    "AccountNotifier",
-    "AccountRotation",
-    "AccountSafety",
-    "AccountWarmup",
-]
+)

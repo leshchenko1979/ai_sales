@@ -1,86 +1,106 @@
 """Interactive GPT test script."""
 
+# Standard library
 import asyncio
 import logging
-
-# Add root directory to PYTHONPATH
-# DO NOT REMOVE
 import sys
 from pathlib import Path
 
-import aioconsole  # Добавляем импорт для асинхронного ввода
+# Third-party imports
+import aioconsole
 
+# Setup path
 root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir))
 
-from core.messaging.conductor import DialogConductor  # noqa: E402
+# Local imports
+from core.messaging import DialogConductor
 
 
-# Цвета для вывода
-class Colors:
+class TerminalColors:
+    """Terminal color codes."""
+
     GREY = "\033[90m"
     BLUE = "\033[94m"
     GREEN = "\033[92m"
     RESET = "\033[0m"
 
 
-# Configure logging
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-
 class ColoredFormatter(logging.Formatter):
-    """Форматтер для цветных логов."""
+    """Formatter for colored logs."""
 
-    def format(self, record):
-        # Делаем все логи серыми
-        return f"{Colors.GREY}{record.getMessage()}{Colors.RESET}"
-
-
-# Добавляем обработчик для вывода в консоль
-handler = logging.StreamHandler()
-handler.setFormatter(ColoredFormatter())
-logger.addHandler(handler)
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record with grey color."""
+        return f"{TerminalColors.GREY}{record.getMessage()}{TerminalColors.RESET}"
 
 
-async def main():
-    """Run interactive test."""
+def setup_logging() -> logging.Logger:
+    """Configure logging with colored output."""
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
 
-    # Create conductor with print function
-    async def print_message(text: str) -> None:
-        print(f"{Colors.BLUE}Bot: {text}{Colors.RESET}")
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColoredFormatter())
+    logger.addHandler(handler)
 
-    conductor = DialogConductor(send_func=print_message)
+    return logger
 
-    # Start conversation
-    await conductor.start_dialog()
 
-    while True:
+class InteractiveDialog:
+    """Interactive dialog handler."""
+
+    def __init__(self):
+        """Initialize dialog handler."""
+        self.logger = setup_logging()
+        self.conductor = None
+
+    async def print_message(self, text: str) -> None:
+        """Print bot message with blue color."""
+        print(f"{TerminalColors.BLUE}Bot: {text}{TerminalColors.RESET}")
+
+    async def handle_user_input(self) -> bool:
+        """Handle single user input iteration.
+
+        Returns:
+            bool: True to continue dialog, False to exit
+        """
         try:
-            # Get user input asynchronously
-            user_message = await aioconsole.ainput(f"{Colors.GREEN}You: {Colors.RESET}")
+            user_message = await aioconsole.ainput(
+                f"{TerminalColors.GREEN}You: {TerminalColors.RESET}"
+            )
 
             if not user_message:
-                logger.info("Empty input, exiting...")
-                break
+                self.logger.info("Empty input, exiting...")
+                return False
 
             # Process message in background
-            asyncio.create_task(conductor.handle_message(user_message))
+            asyncio.create_task(self.conductor.handle_message(user_message))
+            return True
 
-        except EOFError:
-            logger.info("EOF received, exiting gracefully...")
-            break
-        except KeyboardInterrupt:
-            logger.info("Keyboard interrupt received, exiting gracefully...")
-            break
+        except (EOFError, KeyboardInterrupt):
+            self.logger.info("Received exit signal, stopping dialog...")
+            return False
         except Exception as e:
-            logger.error("Error in dialog: %s", e, exc_info=True)
-            break
+            self.logger.error("Error in dialog: %s", e, exc_info=True)
+            return False
+
+    async def run(self):
+        """Run interactive dialog."""
+        try:
+            # Initialize conductor
+            self.conductor = DialogConductor(send_func=self.print_message)
+            await self.conductor.start_dialog()
+
+            # Main dialog loop
+            while await self.handle_user_input():
+                pass
+
+        except Exception as e:
+            self.logger.error("Fatal error: %s", e, exc_info=True)
+            sys.exit(1)
 
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logger.error("Fatal error: %s", e, exc_info=True)
-        sys.exit(1)
+def main():
+    """Main entry point."""
+    dialog = InteractiveDialog()
+    asyncio.run(dialog.run())
