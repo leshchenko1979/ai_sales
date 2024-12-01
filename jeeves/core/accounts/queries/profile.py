@@ -36,6 +36,24 @@ class ProfileQueries(BaseQueries):
             logger.error(f"Failed to get profile for account {account_id}: {e}")
             return None
 
+    async def create_profile(self, account_id: int) -> Optional[AccountProfile]:
+        """Create new empty profile for account."""
+        try:
+            profile = AccountProfile(
+                account_id=account_id,
+                username="",
+                first_name="",
+                last_name="",
+                bio="",
+            )
+            self.session.add(profile)
+            await self.session.flush()
+            return profile
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to create profile for account {account_id}: {e}")
+            await self.session.rollback()
+            return None
+
     async def create_template(
         self,
         name: str,
