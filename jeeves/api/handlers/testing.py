@@ -18,7 +18,7 @@ test_dialogs: Dict[int, DialogConductor] = {}
 # Store dialog messages for analysis
 dialog_messages: Dict[int, List[Message]] = {}
 
-# Mapping from dialog status to result tag
+# Status and tag mappings
 STATUS_TO_TAG = {
     DialogStatus.active: "#уточнение",  # Dialog is still active
     DialogStatus.closed: "#продажа",  # Successful sale
@@ -26,9 +26,9 @@ STATUS_TO_TAG = {
     DialogStatus.rejected: "#отказ",  # Explicit rejection
     DialogStatus.not_qualified: "#неподходит",  # Not qualified
     DialogStatus.meeting_scheduled: "#успех",  # Meeting scheduled
+    DialogStatus.stopped: "#остановлен",  # Manually stopped
 }
 
-# Tag descriptions for the message
 TAG_DESCRIPTIONS = {
     "#уточнение": "Требуется уточнение деталей",
     "#продажа": "Успешная продажа",
@@ -37,11 +37,22 @@ TAG_DESCRIPTIONS = {
     "#успех": "Назначена встреча с клиентом",
     "#тест": "Тестовый диалог с отделом продаж",
     "#заблокировал": "Клиент заблокировал бота",
+    "#остановлен": "Диалог остановлен командой /stop",
 }
 
 
-# Main command handlers
-@app.on_message(filters.command("test_dialog"))
+# Command handlers
+@app.on_message(filters.command("test_dialog") & ~filters.private)
+async def private_chat_filter(message):
+    """Handle test_dialog command in non-private chats."""
+    await message.reply(
+        "⚠️ Чтобы протестировать диалог с ботом, пожалуйста:\n"
+        "1. Перейдите в личный чат с ботом @ai_sales_bot\n"
+        "2. Отправьте команду /test_dialog"
+    )
+
+
+@app.on_message(filters.command("test_dialog") & filters.private)
 async def cmd_test_dialog(client: Client, message: Message):
     """Test dialog with sales bot."""
     user_id = message.from_user.id
@@ -81,6 +92,8 @@ async def cmd_stop_dialog(client: Client, message: Message):
         return
 
     try:
+        conductor = test_dialogs[user_id]
+        conductor.set_status(DialogStatus.stopped)  # Set status to stopped
         thread_link = await forward_dialog_for_analysis(client, user_id)
         await cleanup_dialog(user_id)
         await send_completion_message(message, thread_link, stopped=True)
@@ -135,7 +148,7 @@ async def on_test_message(client: Client, message: Message):
         )
 
 
-# Helper functions
+# Dialog management functions
 async def cleanup_dialog(user_id: int):
     """Clean up dialog data for user."""
     if user_id in test_dialogs:
@@ -157,15 +170,13 @@ async def send_completion_message(
     """Send completion message with thread link and feedback instructions."""
     action = "остановлен" if stopped else "завершен"
     await message.reply(
-        f"Диалог {action} и переслан в группу анализа.\n"
-        f"Вот ссылка на тред: {thread_link}\n\n"
-        "Пожалуйста, оцените сообщения бота:\n"
-        "- Поставьте реакции 👍/👎\n"
-        "- Ответьте на сообщение с комментарием\n"
-        "- Записать общее впечатление (можно голосовым)"
+        f"Диалог {action} и переслан в группу анализа {ANALYSIS_GROUP}.\n"
+        f"Вот ссылка: {thread_link}\n\n"
+        "Пожалуйста, ответьте на сообщения бота, дав ваши комментарии\n"
     )
 
 
+# Forum topic management functions
 async def create_forum_topic(
     client: Client, group_id: int, title: str
 ) -> tuple[int, int]:
@@ -205,7 +216,8 @@ async def create_thread_message(
         chat_id=group_id,
         reply_to_message_id=topic_id,
         text=f"📊 Информация о диалоге:\n"
-        f"- Продавец: {messages[0].from_user.first_name}\n"
+        f"- Тестировал: {messages[0].from_user.first_name} "
+        f"(@{messages[0].from_user.username})\n"
         f"- Дата: {messages[0].date.strftime('%Y-%m-%d')}\n"
         f"- Итог: {result_tag} - {tag_description}\n\n"
         f"💬 Диалог ниже.\n"
@@ -254,7 +266,7 @@ async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
             return ""
 
         title = f"Диалог с {messages[0].from_user.first_name}"
-        topic_id, channel_peer = await create_forum_topic(client, group.id, title)
+        topic_id = await create_forum_topic(client, group.id, title)
         if not topic_id:
             return ""
 

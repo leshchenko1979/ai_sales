@@ -260,3 +260,15 @@ class DialogConductor:
             self._processing_task.cancel()
 
     # 3. Приватные вспомогательные методы
+
+    def set_status(self, status: DialogStatus) -> None:
+        """Set dialog status manually."""
+        if self._history:
+            # Add status to the last message if it's outbound
+            if self._history[-1]["direction"] == "out":
+                self._history[-1]["status"] = status
+            else:
+                # Add a system message with the new status
+                self._history.append(
+                    {"direction": "out", "text": "Диалог остановлен", "status": status}
+                )
