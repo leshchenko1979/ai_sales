@@ -4,6 +4,16 @@
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+function Test-LastExitCode {
+    param(
+        [string]$Action = "Previous command"
+    )
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "$Action failed with exit code $LASTEXITCODE" -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
+
 Write-Host "Starting deployment..." -ForegroundColor Green
 
 function Get-EnvVariables {
@@ -108,6 +118,7 @@ function Deploy-Files {
 
     # Create remote directory
     ssh "${RemoteUser}@${RemoteHost}" 'sudo mkdir -p /home/jeeves/jeeves'
+    Test-LastExitCode "Creating remote directory"
 
     # Clean up __pycache__ directories locally
     Get-ChildItem -Path "./jeeves" -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force
@@ -138,10 +149,14 @@ function Deploy-Files {
     # Deploy files
     Write-Host "`nCopying files to server..." -ForegroundColor Green
     scp requirements.txt "${RemoteUser}@${RemoteHost}:/home/jeeves/"
+    Test-LastExitCode "Copying requirements.txt"
+
     scp -r "${tempDir}/*" "${RemoteUser}@${RemoteHost}:/home/jeeves/"
+    Test-LastExitCode "Copying application files"
 
     # Set permissions
     ssh "${RemoteUser}@${RemoteHost}" 'sudo chown -R jeeves:jeeves /home/jeeves'
+    Test-LastExitCode "Setting permissions"
 }
 
 function Configure-Service {
@@ -197,17 +212,43 @@ function Start-Service {
 
     Write-Host "Starting and verifying service..." -ForegroundColor Green
 
-    # Use single command string with semicolons
-    $commands = @(
-        'sudo systemctl daemon-reload',
-        'sudo systemctl enable jeeves',
-        'sudo systemctl restart jeeves',
-        'sleep 5',
-        'sudo systemctl status jeeves',
-        'sudo tail -n 20 /var/log/jeeves/app.log'
-    ) -join '; '
+    # Reload and restart service
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl daemon-reload'
+    Test-LastExitCode "Reloading systemd"
 
-    ssh "${RemoteUser}@${RemoteHost}" $commands
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl enable jeeves'
+    Test-LastExitCode "Enabling service"
+
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl restart jeeves'
+    Test-LastExitCode "Restarting service"
+
+    # Wait for service to start
+    Write-Host "Waiting for service to start..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+
+    # Check service status
+    $status = ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl is-active jeeves'
+    Test-LastExitCode "Checking service status"
+
+    if ($status -ne 'active') {
+        Write-Host "Service failed to start. Checking logs..." -ForegroundColor Red
+        ssh "${RemoteUser}@${RemoteHost}" 'sudo journalctl -u jeeves -n 50 --no-pager'
+        Test-LastExitCode "Fetching service logs"
+        exit 1
+    }
+
+    # Show recent logs
+    Write-Host "`nService is running. Recent logs:" -ForegroundColor Green
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo tail -n 20 /var/log/jeeves/app.log'
+    Test-LastExitCode "Fetching application logs"
+
+    # Check for any obvious errors in logs
+    $errorCount = ssh "${RemoteUser}@${RemoteHost}" 'sudo grep -i "error\|exception" /var/log/jeeves/app.log /var/log/jeeves/error.log | wc -l'
+    Test-LastExitCode "Checking for errors in logs"
+
+    if ([int]$errorCount -gt 0) {
+        Write-Host "`nWarning: Found potential errors in logs. Please check /var/log/jeeves/*.log" -ForegroundColor Yellow
+    }
 }
 
 function Deploy-All {
