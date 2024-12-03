@@ -116,9 +116,12 @@ function Deploy-Files {
 
     Write-Host "Deploying application files..." -ForegroundColor Green
 
-    # Create remote directory
-    ssh "${RemoteUser}@${RemoteHost}" 'sudo mkdir -p /home/jeeves/jeeves'
-    Test-LastExitCode "Creating remote directory"
+    # First clean up the remote directory
+    ssh "${RemoteUser}@${RemoteHost}" @'
+        sudo rm -rf /home/jeeves/jeeves
+        sudo mkdir -p /home/jeeves
+'@
+    Test-LastExitCode "Cleaning remote directory"
 
     # Clean up __pycache__ directories locally
     Get-ChildItem -Path "./jeeves" -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force
@@ -151,12 +154,21 @@ function Deploy-Files {
     scp requirements.txt "${RemoteUser}@${RemoteHost}:/home/jeeves/"
     Test-LastExitCode "Copying requirements.txt"
 
-    scp -r "${tempDir}/*" "${RemoteUser}@${RemoteHost}:/home/jeeves/"
+    # Copy the entire jeeves directory structure
+    scp -r "${tempDir}/jeeves" "${RemoteUser}@${RemoteHost}:/home/jeeves/"
     Test-LastExitCode "Copying application files"
 
     # Set permissions
     ssh "${RemoteUser}@${RemoteHost}" 'sudo chown -R jeeves:jeeves /home/jeeves'
     Test-LastExitCode "Setting permissions"
+
+    # Verify deployment
+    ssh "${RemoteUser}@${RemoteHost}" @'
+        echo "Verifying deployment structure:"
+        ls -la /home/jeeves/jeeves
+        echo -e "\nVerifying specific files:"
+        test -f /home/jeeves/jeeves/api/handlers/testing.py && echo "testing.py exists" || echo "testing.py missing"
+'@
 }
 
 function Configure-Service {
@@ -212,6 +224,10 @@ function Start-Service {
 
     Write-Host "Starting and verifying service..." -ForegroundColor Green
 
+    # Stop service if running
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl stop jeeves'
+    Start-Sleep -Seconds 2
+
     # Reload and restart service
     ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl daemon-reload'
     Test-LastExitCode "Reloading systemd"
@@ -219,35 +235,72 @@ function Start-Service {
     ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl enable jeeves'
     Test-LastExitCode "Enabling service"
 
-    ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl restart jeeves'
+    # Clear logs before starting
+    ssh "${RemoteUser}@${RemoteHost}" @'
+sudo truncate -s 0 /var/log/jeeves/app.log
+sudo truncate -s 0 /var/log/jeeves/error.log
+sudo systemctl restart jeeves
+'@
     Test-LastExitCode "Restarting service"
 
-    # Wait for service to start
+    # Wait and verify service status
     Write-Host "Waiting for service to start..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 5
+    $maxAttempts = 6
+    $attempt = 0
+    $serviceActive = $false
 
-    # Check service status
-    $status = ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl is-active jeeves'
-    Test-LastExitCode "Checking service status"
+    while ($attempt -lt $maxAttempts) {
+        Start-Sleep -Seconds 5
+        $status = ssh "${RemoteUser}@${RemoteHost}" 'sudo systemctl is-active jeeves'
 
-    if ($status -ne 'active') {
+        if ($status -eq 'active') {
+            $serviceActive = $true
+            break
+        }
+
+        $attempt++
+        Write-Host "Attempt ${attempt} of ${maxAttempts}: Service not active yet..." -ForegroundColor Yellow
+    }
+
+    if (-not $serviceActive) {
         Write-Host "Service failed to start. Checking logs..." -ForegroundColor Red
-        ssh "${RemoteUser}@${RemoteHost}" 'sudo journalctl -u jeeves -n 50 --no-pager'
-        Test-LastExitCode "Fetching service logs"
+        ssh "${RemoteUser}@${RemoteHost}" @'
+echo "=== Journal Logs ==="
+sudo journalctl -u jeeves -n 50 --no-pager
+echo -e "\n=== App Logs ==="
+sudo tail -n 50 /var/log/jeeves/app.log
+echo -e "\n=== Error Logs ==="
+sudo tail -n 50 /var/log/jeeves/error.log
+'@
         exit 1
     }
 
     # Show recent logs
     Write-Host "`nService is running. Recent logs:" -ForegroundColor Green
-    ssh "${RemoteUser}@${RemoteHost}" 'sudo tail -n 20 /var/log/jeeves/app.log'
-    Test-LastExitCode "Fetching application logs"
 
-    # Check for any obvious errors in logs
-    $errorCount = ssh "${RemoteUser}@${RemoteHost}" 'sudo grep -i "error\|exception" /var/log/jeeves/app.log /var/log/jeeves/error.log | wc -l'
-    Test-LastExitCode "Checking for errors in logs"
+    # Use sed with properly escaped quotes
+    Write-Host "`n=== App Log ===" -ForegroundColor Cyan
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo cat /var/log/jeeves/app.log | sed ''s/^/  /'''
 
-    if ([int]$errorCount -gt 0) {
-        Write-Host "`nWarning: Found potential errors in logs. Please check /var/log/jeeves/*.log" -ForegroundColor Yellow
+    Write-Host "`n=== Error Log ===" -ForegroundColor Cyan
+    ssh "${RemoteUser}@${RemoteHost}" 'sudo cat /var/log/jeeves/error.log | sed ''s/^/  /'''
+
+    Test-LastExitCode "Fetching logs"
+
+    # Count errors without displaying them
+    $errorCount = ssh "${RemoteUser}@${RemoteHost}" 'sudo cat /var/log/jeeves/*.log | grep -c -i "error\|exception\|traceback" || echo 0'
+
+    if ($LASTEXITCODE -eq 0) {
+        if ([int]$errorCount -gt 0) {
+            Write-Host "`nWarning: Found $errorCount potential errors in logs" -ForegroundColor Yellow
+            # Show errors with proper formatting
+            Write-Host "`nError context:" -ForegroundColor Yellow
+            ssh "${RemoteUser}@${RemoteHost}" 'sudo cat /var/log/jeeves/*.log | grep -i "error\|exception\|traceback" | sed ''s/^/  /'''
+        } else {
+            Write-Host "`nNo errors found in logs" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "`nWarning: Could not check logs for errors" -ForegroundColor Yellow
     }
 }
 
