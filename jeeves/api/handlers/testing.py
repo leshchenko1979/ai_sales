@@ -5,10 +5,10 @@ from typing import Dict, List
 
 from core.messaging.conductor import DialogConductor
 from core.messaging.enums import DialogStatus
+from core.telegram import create_forum_topic, forward_messages_to_topic
 from core.telegram.client import app
 from infrastructure.config import ANALYSIS_GROUP
 from pyrogram import Client, filters
-from pyrogram.raw import functions
 from pyrogram.types import Message
 
 logger = logging.getLogger(__name__)
@@ -176,31 +176,6 @@ async def send_completion_message(
     )
 
 
-# Forum topic management functions
-async def create_forum_topic(
-    client: Client, group_id: int, title: str
-) -> tuple[int, int]:
-    """Create forum topic and return topic_id and channel_peer."""
-    channel_peer = await client.resolve_peer(group_id)
-
-    topic = await client.invoke(
-        functions.channels.CreateForumTopic(
-            channel=channel_peer,
-            title=title,
-            icon_color=0x6FB9F0,  # Light blue color
-            random_id=client.rnd_id(),
-        )
-    )
-
-    topic_id = topic.updates[0].id
-    if not topic_id:
-        logger.error("Failed to create forum topic")
-        return 0, 0
-
-    logger.info(f"Created forum topic: {topic_id}")
-    return topic_id, channel_peer
-
-
 async def create_thread_message(
     client: Client,
     group_id: int,
@@ -220,32 +195,12 @@ async def create_thread_message(
         f"(@{messages[0].from_user.username})\n"
         f"- Дата: {messages[0].date.strftime('%Y-%m-%d')}\n"
         f"- Итог: {result_tag} - {tag_description}\n\n"
-        f"💬 Диалог ниже.\n"
-        f"Вы можете:\n"
-        f"- Ответить на конкретное сообщение с комментарием\n"
-        f"- Поставить реакцию на сообщение бота\n"
-        f"- Записать общее впечатление (можно голосовым)",
+        "Давайте обратную связь на конкретное сообщение, ответив на него, "
+        "или на весь диалог, отправляя сообщения в эту тему.",
     )
 
 
-async def forward_messages_to_topic(
-    client: Client, messages: List[Message], group_id: int, topic_id: int
-) -> None:
-    """Forward all dialog messages to the topic."""
-    try:
-        await client.invoke(
-            functions.messages.ForwardMessages(
-                from_peer=await client.resolve_peer(messages[0].chat.id),
-                to_peer=await client.resolve_peer(group_id),
-                top_msg_id=topic_id,
-                id=[msg.id for msg in messages],
-                random_id=[client.rnd_id() for _ in messages],
-            )
-        )
-    except Exception as e:
-        logger.error(f"Error forwarding messages: {e}")
-
-
+# Forum topic management functions
 async def forward_dialog_for_analysis(client: Client, user_id: int) -> str:
     """Forward dialog to testing group for analysis."""
     try:

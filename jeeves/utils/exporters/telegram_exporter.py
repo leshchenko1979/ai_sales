@@ -30,18 +30,29 @@ Example:
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.accounts.client_manager import ClientManager
-from core.accounts.queries.account import AccountQueries
-from core.db.decorators import with_queries
+from core.telegram import get_forum_topics, get_topic_messages
 from infrastructure.config import ANALYSIS_GROUP
 from pyrogram import Client
-from pyrogram.raw import functions, types
+from pyrogram.raw import types
+from pyrogram.types import Message as TelegramMessage
 
 from . import BaseExporter, Dialog
 from . import Message as ExportMessage
+
+
+@dataclass
+class MessageInfo:
+    """Message sender info and type."""
+
+    sender_id: Optional[int]
+    is_bot: bool
+    type: str
+    timestamp: datetime
 
 
 class TelegramDialogExporter(BaseExporter):
@@ -53,41 +64,132 @@ class TelegramDialogExporter(BaseExporter):
         self.logger = logging.getLogger(__name__)
         self.client_manager = ClientManager()
 
-    @with_queries(AccountQueries)
-    async def _get_client(self, queries: AccountQueries) -> Optional[Client]:
-        """Get Pyrogram client from available account."""
+    async def get_client(self) -> Optional[Client]:
+        """Get any available Telegram client."""
+        account_client = await self.client_manager.get_any_client()
+        return account_client.client if account_client else None
+
+    # Main public methods
+    async def export_all_dialogs(
+        self, since_date: Optional[datetime] = None
+    ) -> Optional[str]:
+        """Export all dialogs from Telegram group."""
         try:
-            # Get active accounts
-            accounts = await queries.get_active_accounts()
-
-            if not accounts:
-                self.logger.error("No available accounts found")
+            client = await self.get_client()
+            if not client:
                 return None
 
-            account = accounts[0]
-            self.logger.info(f"Using account {account.phone} for export")
-
-            account_client = await self.client_manager.get_client(
-                account.phone, account.session_string
-            )
-
-            if not account_client or not account_client.client:
-                self.logger.error(
-                    f"Failed to initialize client for account {account.phone}"
+            if not since_date:
+                since_date = datetime.now().replace(
+                    hour=0, minute=0, second=0, microsecond=0
                 )
+
+            topics = await get_forum_topics(client, ANALYSIS_GROUP, since_date)
+            if not topics:
                 return None
 
-            return account_client.client
+            dialogs = []
+            for topic in topics:
+                messages = await get_topic_messages(client, ANALYSIS_GROUP, topic["id"])
+                if messages:
+                    # Convert messages to our format
+                    converted_messages = [
+                        self._convert_message(msg, {}) for msg in messages
+                    ]
+                    filtered_messages = [msg for msg in converted_messages if msg]
+                    if filtered_messages:
+                        dialog = Dialog(
+                            id=topic["id"],
+                            title=topic["title"],
+                            created_at=topic["date"],
+                            messages=filtered_messages,
+                        )
+                        dialogs.append(dialog)
+
+            if not dialogs:
+                return None
+
+            return await self.save_export(dialogs, prefix="tg_dialogs")
 
         except Exception as e:
-            self.logger.error(f"Error getting client: {e}", exc_info=True)
+            self.logger.error(f"Error exporting all dialogs: {e}", exc_info=True)
             return None
 
-    def _convert_message(self, message: types.Message, users: Dict) -> ExportMessage:
+    async def export_dialog(self, topic_id: int) -> Optional[str]:
+        """Export single dialog."""
+        try:
+            client = await self.get_client()
+            if not client:
+                return None
+
+            # Get messages
+            messages = await get_topic_messages(client, ANALYSIS_GROUP, topic_id)
+            if not messages:
+                self.logger.error("No messages found")
+                return None
+
+            # Get thread info from first message
+            thread_info = {
+                "title": f"Topic {topic_id}",
+                "bot_id": None,
+            }
+            for msg in messages:
+                if msg.text and "📊 Информация о диалоге:" in msg.text:
+                    # Parse thread info
+                    info = {}
+                    lines = msg.text.split("\n")
+                    for line in lines:
+                        if "Продавец:" in line:
+                            info["seller"] = line.split(":")[1].strip()
+                        elif "Дата:" in line:
+                            info["date"] = line.split(":")[1].strip()
+                        elif "Итог:" in line:
+                            info["result"] = line.split(":")[1].strip()
+
+                    # Get bot ID from message
+                    info["bot_id"] = msg.from_user.id if msg.from_user else None
+                    info["title"] = f"Диалог с {info.get('seller', 'Unknown')}"
+                    thread_info = info
+                    break
+
+            # Convert messages to our format
+            converted_messages = [self._convert_message(msg, {}) for msg in messages]
+            filtered_messages = [msg for msg in converted_messages if msg]
+            if not filtered_messages:
+                self.logger.error("No valid messages after conversion")
+                return None
+
+            # Sort converted messages by timestamp
+            filtered_messages.sort(key=lambda x: x.timestamp)
+
+            # Create dialog
+            dialog = Dialog(
+                id=topic_id,
+                title=thread_info.get("title", f"Topic {topic_id}"),
+                created_at=filtered_messages[0].timestamp,
+                messages=filtered_messages,
+                metadata={
+                    "chat_id": ANALYSIS_GROUP,
+                    "topic_id": topic_id,
+                    **thread_info,
+                },
+            )
+
+            # Export dialog
+            return await self.save_export([dialog], prefix="tg_dialog")
+
+        except Exception as e:
+            self.logger.error(f"Error exporting dialog: {e}", exc_info=True)
+            return None
+
+    # Message processing
+    def _convert_message(
+        self, message: TelegramMessage, users: Dict
+    ) -> Optional[ExportMessage]:
         """Convert Telegram message to export format."""
         try:
             # Get message content
-            content = message.message if hasattr(message, "message") else ""
+            content = message.text or message.caption or ""
 
             # Skip empty messages but log them
             if not content:
@@ -96,34 +198,24 @@ class TelegramDialogExporter(BaseExporter):
                 )
                 return None
 
-            # Get sender ID and timestamp
-            from_id = message.from_id
-            sender_id = from_id.user_id if isinstance(from_id, types.PeerUser) else None
-            timestamp = datetime.fromtimestamp(message.date)
-
-            # Get sender info
-            sender = users.get(sender_id) if sender_id else None
-            is_bot = sender and sender.bot
+            # Get sender info and timestamp
+            sender = message.from_user
+            is_bot = sender.is_bot if sender else False
+            timestamp = message.date  # Already a datetime object
 
             # Determine message type
-            if message.fwd_from:
+            if message.forward_date:
                 # This is a dialog message (forwarded)
-                timestamp = datetime.fromtimestamp(message.fwd_from.date)
-                fwd_from = message.fwd_from
-                fwd_sender = fwd_from.from_id
-                fwd_sender_id = (
-                    fwd_sender.user_id
-                    if isinstance(fwd_sender, types.PeerUser)
-                    else None
-                )
-                fwd_user = users.get(fwd_sender_id) if fwd_sender_id else None
-                is_bot = fwd_user and fwd_user.bot
-                sender_id = fwd_sender_id
+                timestamp = message.forward_date  # Already a datetime object
+                fwd_sender = message.forward_from
+                is_bot = fwd_sender.is_bot if fwd_sender else False
+                sender_id = fwd_sender.id if fwd_sender else None
                 message_type = "bot" if is_bot else "client"
             else:
                 # Not forwarded - this is feedback
                 message_type = "feedback"
                 is_bot = False
+                sender_id = sender.id if sender else None
 
             # Create export message
             result = ExportMessage(
@@ -133,14 +225,36 @@ class TelegramDialogExporter(BaseExporter):
                 sender_id=sender_id,
                 is_bot=is_bot,
                 message_type=message_type,
-                reply_to=message.reply_to.reply_to_msg_id if message.reply_to else None,
+                reply_to=message.reply_to_message_id,
             )
             return result
         except Exception as e:
             self.logger.error(
-                f"Error converting message {message.id}: {e}", exc_info=True
+                f"Error converting message {message.id if hasattr(message, 'id') else '<unknown>'}: {e}",
+                exc_info=True,
             )
             return None
+
+    def _get_message_info(self, message: TelegramMessage, users: Dict) -> MessageInfo:
+        """Get message sender info and type."""
+        sender_id = message.from_user.id if message.from_user else None
+        timestamp = message.date  # Already a datetime object
+
+        if message.forward_date:
+            sender_id = message.forward_from.id if message.forward_from else None
+            timestamp = message.forward_date  # Already a datetime object
+
+        sender = users.get(sender_id) if sender_id else None
+        is_bot = sender.is_bot if sender else False
+
+        # Messages in feedback group are feedback unless forwarded
+        message_type = (
+            "feedback" if not message.forward_date else "bot" if is_bot else "client"
+        )
+
+        return MessageInfo(
+            sender_id=sender_id, is_bot=is_bot, type=message_type, timestamp=timestamp
+        )
 
     def _build_message_tree(self, messages: List[ExportMessage]) -> List[ExportMessage]:
         """Build a tree of messages with replies."""
@@ -151,11 +265,96 @@ class TelegramDialogExporter(BaseExporter):
         messages.sort(key=lambda x: x.timestamp)
         return messages
 
+    # Formatting and validation
+    def _format_human_readable(self, dialog: Dialog) -> str:
+        """Format dialog for human reading with improved feedback handling."""
+        lines = [
+            f"Диалог {dialog.id}: {dialog.title}",
+            f"Создан: {dialog.created_at.strftime('%Y-%m-%d %H:%M:%S')}",
+        ]
+
+        # Add metadata if exists
+        if dialog.metadata:
+            lines.append("Метаданные:")
+            field_names = {
+                "seller": "Продавец",
+                "date": "Дата",
+                "result": "Итог",
+                "bot_id": "ID бота",
+                "title": "Название",
+            }
+            for key, value in dialog.metadata.items():
+                if key in ["chat_id", "topic_id", "Вы можете"]:  # Skip technical fields
+                    continue
+                display_key = field_names.get(key, key)
+                lines.append(f"  {display_key}: {value}")
+
+        lines.append("")  # Empty line before messages
+
+        # Create message lookup for replies
+        msg_lookup = {msg.id: msg for msg in dialog.messages}
+
+        # Group feedback messages by their reply_to
+        feedback_by_reply = {}
+        general_feedback = []  # For feedback without reply_to
+        for msg in dialog.messages:
+            if msg.message_type == "feedback":
+                if msg.reply_to and msg.reply_to in msg_lookup:
+                    if msg.reply_to not in feedback_by_reply:
+                        feedback_by_reply[msg.reply_to] = []
+                    feedback_by_reply[msg.reply_to].append(msg)
+                else:
+                    general_feedback.append(msg)  # Collect general feedback
+
+        # Process messages in order
+        processed_ids = set()
+        for msg in dialog.messages:
+            if msg.id in processed_ids or msg.message_type == "feedback":
+                continue
+
+            # Format the main message
+            reply_to = msg_lookup.get(msg.reply_to) if msg.reply_to else None
+            lines.extend(self._format_message_block(msg, reply_to))
+
+            # Add any feedback messages that reply to this message
+            if msg.id in feedback_by_reply:
+                for feedback_msg in sorted(
+                    feedback_by_reply[msg.id], key=lambda x: x.timestamp
+                ):
+                    lines.extend(
+                        self._format_message_block(feedback_msg, msg, indent=2)
+                    )
+
+            processed_ids.add(msg.id)
+            lines.append("")  # Empty line between messages
+
+        # Add general feedback at the end if exists
+        if general_feedback:
+            lines.append("# Общая обратная связь")
+            for msg in sorted(general_feedback, key=lambda x: x.timestamp):
+                lines.extend(self._format_message_block(msg))
+                lines.append("")
+
+        return "\n".join(lines)
+
     def _process_dialog(self, messages: List[ExportMessage]) -> List[ExportMessage]:
         """Process a single dialog."""
-        # Skip empty dialogs
         if not messages:
             return []
+
+        # Filter out service messages and mentions
+        messages = [
+            msg
+            for msg in messages
+            if not (
+                msg.message_type == "feedback"
+                and (
+                    " Информация о диалоге:" in msg.content
+                    or msg.content.strip().startswith("@")
+                    or "Вы можете:" in msg.content
+                )
+            )
+        ]
 
         # Sort messages by timestamp
         messages.sort(key=lambda x: x.timestamp)
@@ -240,184 +439,6 @@ class TelegramDialogExporter(BaseExporter):
         lines.extend(" " * content_indent + line for line in msg.content.split("\n"))
         return lines
 
-    def _format_human_readable(self, dialog: Dialog) -> str:
-        """Format dialog for human reading with improved feedback handling."""
-        lines = [
-            f"Диалог {dialog.id}: {dialog.title}",
-            f"Создан: {dialog.created_at.strftime('%Y-%m-%d %H:%M:%S')}",
-        ]
-
-        # Add metadata if exists
-        if dialog.metadata:
-            lines.append("Метаданные:")
-            for key, value in dialog.metadata.items():
-                if key not in ["chat_id", "topic_id"]:  # Skip technical fields
-                    lines.append(f"  {key}: {value}")
-
-        lines.append("")  # Empty line before messages
-
-        # Create message lookup for replies
-        msg_lookup = {msg.id: msg for msg in dialog.messages}
-
-        # Group feedback messages by their reply_to
-        feedback_by_reply = {}
-        general_feedback = []  # For feedback without reply_to
-        for msg in dialog.messages:
-            if msg.message_type == "feedback":
-                if msg.reply_to and msg.reply_to in msg_lookup:
-                    if msg.reply_to not in feedback_by_reply:
-                        feedback_by_reply[msg.reply_to] = []
-                    feedback_by_reply[msg.reply_to].append(msg)
-                else:
-                    general_feedback.append(msg)  # Collect general feedback
-
-        # Process messages in order
-        processed_ids = set()
-        for msg in dialog.messages:
-            if msg.id in processed_ids or msg.message_type == "feedback":
-                continue
-
-            # Format the main message
-            reply_to = msg_lookup.get(msg.reply_to) if msg.reply_to else None
-            lines.extend(self._format_message_block(msg, reply_to))
-
-            # Add any feedback messages that reply to this message
-            if msg.id in feedback_by_reply:
-                for feedback_msg in sorted(
-                    feedback_by_reply[msg.id], key=lambda x: x.timestamp
-                ):
-                    lines.extend(
-                        self._format_message_block(feedback_msg, msg, indent=2)
-                    )
-
-            processed_ids.add(msg.id)
-            lines.append("")  # Empty line between messages
-
-        # Add general feedback at the end if exists
-        if general_feedback:
-            lines.append("# Общая обратная связь")
-            for msg in sorted(general_feedback, key=lambda x: x.timestamp):
-                lines.extend(self._format_message_block(msg))
-                lines.append("")
-
-        return "\n".join(lines)
-
-    async def _get_topic_messages(
-        self, client: Client, topic_id: int, thread_info: Optional[Dict] = None
-    ) -> List[ExportMessage]:
-        """Get all messages from a topic."""
-        try:
-            # Get messages in batches
-            all_messages = []
-            offset_id = 0
-            users = {}  # Store users by ID
-            while True:
-                # Get messages
-                result = await client.invoke(
-                    functions.messages.GetReplies(
-                        peer=await client.resolve_peer(ANALYSIS_GROUP),
-                        msg_id=topic_id,
-                        offset_id=offset_id,
-                        offset_date=0,
-                        add_offset=0,
-                        limit=100,
-                        max_id=0,
-                        min_id=0,
-                        hash=0,
-                    )
-                )
-
-                # Update users dict
-                for user in result.users:
-                    users[user.id] = user
-
-                # Add messages
-                raw_messages_count = len(result.messages)
-                self.logger.info(f"Got {raw_messages_count} raw messages from Telegram")
-
-                converted_count = 0
-                for message in result.messages:
-                    if isinstance(message, types.Message):
-                        msg = self._convert_message(message, users)
-                        if msg:  # Skip None messages (service messages)
-                            all_messages.append(msg)
-                            converted_count += 1
-
-                self.logger.info(f"Converted {converted_count} messages successfully")
-
-                # Check if we got all messages
-                if len(result.messages) < 100:
-                    break
-
-                # Update offset
-                if result.messages:
-                    offset_id = result.messages[-1].id
-
-            # Log message counts
-            self.logger.info(f"Found {len(all_messages)} messages total")
-            dialog_msgs = [
-                m for m in all_messages if m.message_type in ("bot", "client")
-            ]
-            feedback_msgs = [m for m in all_messages if m.message_type == "feedback"]
-            self.logger.info(f"Dialog messages: {len(dialog_msgs)}")
-            self.logger.info(f"Feedback messages: {len(feedback_msgs)}")
-
-            # Process all messages as a single dialog
-            final_messages = self._process_dialog(all_messages)
-            self.logger.info(
-                f"Final message count after processing: {len(final_messages)}"
-            )
-
-            if not final_messages:
-                self.logger.error("No messages after processing")
-                return []
-
-            return final_messages
-
-        except Exception as e:
-            self.logger.error(f"Error getting topic messages: {e}", exc_info=True)
-            return []
-
-    async def _get_forum_topics(
-        self, client: Client, chat_id: int, since_date: datetime
-    ) -> List[Dict]:
-        """Get forum topics using raw API."""
-        try:
-            peer = await client.resolve_peer(chat_id)
-            result = await client.invoke(
-                functions.channels.GetForumTopics(
-                    channel=peer,
-                    offset_date=0,
-                    offset_id=0,
-                    offset_topic=0,
-                    limit=100,
-                )
-            )
-
-            topics = []
-            for topic in result.topics:
-                if not isinstance(topic, types.ForumTopic):
-                    continue
-
-                topic_date = datetime.fromtimestamp(topic.date)
-                if topic_date < since_date:
-                    continue
-
-                topics.append(
-                    {
-                        "id": topic.id,
-                        "title": topic.title,
-                        "date": topic_date,
-                    }
-                )
-
-            self.logger.info(f"Found {len(topics)} topics since {since_date}")
-            return topics
-
-        except Exception as e:
-            self.logger.error(f"Error getting forum topics: {e}")
-            return []
-
     def _validate_export(self, dialog: Dialog) -> Dict[str, Any]:
         """Validate exported dialog and return validation results."""
         results = {
@@ -466,201 +487,53 @@ class TelegramDialogExporter(BaseExporter):
                 msg.message_type == "dialog"
                 and prev_msg
                 and prev_msg.message_type == "dialog"
+                and msg.is_bot == prev_msg.is_bot
             ):
-                if msg.is_bot == prev_msg.is_bot:
-                    results["errors"].append(
-                        f"Two consecutive messages from {'bot' if msg.is_bot else 'client'} "
-                        f"at {msg.timestamp}"
-                    )
+                results["errors"].append(
+                    f"Two consecutive messages from {'bot' if msg.is_bot else 'client'} "
+                    f"at {msg.timestamp}"
+                )
             prev_msg = msg
 
         return results
 
-    async def export_dialog(self, topic_id: int) -> Optional[str]:
-        """Export single dialog."""
-        try:
-            # Get client
-            client = await self._get_client()
-            if not client:
-                return None
-
-            # Get thread info
-            thread_info = await self._get_thread_info(client, topic_id)
-            if not thread_info:
-                self.logger.error("Failed to get thread info")
-                return None
-
-            # Store thread info for message conversion
-            self.thread_info = thread_info
-
-            # Get messages
-            messages = await self._get_topic_messages(client, topic_id, thread_info)
-            if not messages:
-                self.logger.error("No messages found")
-                return None
-
-            # Sort messages by timestamp
-            messages.sort(key=lambda x: x.timestamp)
-
-            # Create dialog
-            dialog = Dialog(
-                id=topic_id,
-                title=thread_info.get("title", f"Topic {topic_id}"),
-                created_at=messages[0].timestamp,
-                messages=messages,
-                metadata={
-                    "chat_id": ANALYSIS_GROUP,
-                    "topic_id": topic_id,
-                    **thread_info,
-                },
-            )
-
-            # Export dialog
-            return await self.save_export([dialog], prefix="tg_dialog")
-
-        except Exception as e:
-            self.logger.error(f"Error exporting dialog: {e}", exc_info=True)
-            return None
+    # Helper methods
+    def _parse_peer_user_id(self, peer) -> Optional[int]:
+        """Extract user ID from peer."""
+        return peer.user_id if isinstance(peer, types.PeerUser) else None
 
     async def _get_thread_info(self, client: Client, topic_id: int) -> Optional[Dict]:
         """Get thread info from the first message."""
         try:
-            # Get messages in batches
-            messages = []
-            offset_id = 0
-            while True:
-                # Get messages
-                result = await client.invoke(
-                    functions.messages.GetReplies(
-                        peer=await client.resolve_peer(ANALYSIS_GROUP),
-                        msg_id=topic_id,
-                        offset_id=offset_id,
-                        offset_date=0,
-                        add_offset=0,
-                        limit=100,
-                        max_id=0,
-                        min_id=0,
-                        hash=0,
+            messages = await get_topic_messages(client, ANALYSIS_GROUP, topic_id)
+            if not messages:
+                return None
+
+            def is_info_message(msg: types.Message) -> bool:
+                """Check if message contains thread info."""
+                return bool(msg.message and "📊 Информация о диалоге:" in msg.message)
+
+            def parse_info_line(line: str) -> tuple[str, str]:
+                """Parse info line into key-value pair."""
+                key, *value = line.split(":")
+                return key.strip(), ":".join(value).strip()
+
+            # Find thread info message
+            for message in filter(is_info_message, messages):
+                info = {}
+                lines = message.message.split("\n")
+                info.update(
+                    dict(
+                        parse_info_line(line)
+                        for line in lines
+                        if ":" in line and line.strip() != "📊 Информация о диалоге:"
                     )
                 )
 
-                # Add messages
-                for message in result.messages:
-                    if isinstance(message, types.Message):
-                        messages.append(message)
-
-                # Check if we got all messages
-                if len(result.messages) < 100:
-                    break
-
-                # Update offset
-                if result.messages:
-                    offset_id = result.messages[-1].id
-
-            # Find thread info message
-            thread_info = None
-            for message in messages:
-                if message.message and "📊 Информация о диалоге:" in message.message:
-                    # Parse thread info
-                    info = {}
-                    lines = message.message.split("\n")
-                    for line in lines:
-                        if "Продаве:" in line:
-                            info["seller"] = line.split(":")[1].strip()
-                        elif "Дата:" in line:
-                            info["date"] = line.split(":")[1].strip()
-                        elif "Итог:" in line:
-                            info["result"] = line.split(":")[1].strip()
-
-                    # Get bot ID from message
-                    info["bot_id"] = (
-                        message.from_id.user_id
-                        if isinstance(message.from_id, types.PeerUser)
-                        else None
-                    )
-                    info["title"] = f"Диалог с {info.get('seller', 'Unknown')}"
-                    thread_info = info
-                    break
-
-            # If no thread info found, create basic info
-            if not thread_info and messages:
-                # Find bot ID by looking at user objects
-                bot_id = None
-                for user in result.users:
-                    if user.bot:
-                        bot_id = user.id
-                        break
-
-                thread_info = {
-                    "bot_id": bot_id,
-                    "title": f"Topic {topic_id}",
-                    "seller": "Unknown",
-                    "date": datetime.fromtimestamp(messages[0].date).strftime(
-                        "%Y-%m-%d"
-                    ),
-                }
-
-            return thread_info
+                info["bot_id"] = self._parse_peer_user_id(message.from_id)
+                info["title"] = f"Диалог с {info.get('seller', 'Unknown')}"
+                return info
 
         except Exception as e:
             self.logger.error(f"Error getting thread info: {e}", exc_info=True)
             return None
-
-    async def export_all_dialogs(
-        self, since_date: Optional[datetime] = None
-    ) -> Optional[str]:
-        """Export all dialogs from Telegram group."""
-        try:
-            client = await self._get_client()
-            if not client:
-                return None
-
-            if not since_date:
-                since_date = datetime.now().replace(
-                    hour=0, minute=0, second=0, microsecond=0
-                )
-
-            topics = await self._get_forum_topics(client, ANALYSIS_GROUP, since_date)
-            if not topics:
-                return None
-
-            dialogs = []
-            for topic in topics:
-                dialog = await self._get_topic_messages(
-                    client, ANALYSIS_GROUP, topic["id"]
-                )
-                if dialog:
-                    dialogs.append(dialog)
-
-            if not dialogs:
-                return None
-
-            return await self.save_export(dialogs, prefix="tg_dialogs")
-
-        except Exception as e:
-            self.logger.error(f"Error exporting all dialogs: {e}", exc_info=True)
-            return None
-
-    def _is_bot_message(self, message: types.Message, users: Dict) -> bool:
-        """Check if message is from bot."""
-        # Get sender ID from from_id field
-        from_id = message.from_id
-        sender_id = from_id.user_id if isinstance(from_id, types.PeerUser) else None
-
-        # Check if message is forwarded
-        if message.fwd_from:
-            # If forwarded, use original sender ID
-            fwd_from = message.fwd_from.from_id
-            sender_id = (
-                fwd_from.user_id if isinstance(fwd_from, types.PeerUser) else None
-            )
-
-        # Find user object for sender
-        sender = users.get(sender_id) if sender_id else None
-
-        # Message is from bot if:
-        # 1. Sender is a bot
-        # 2. Or it's a thread info message
-        return (sender and sender.bot) or (
-            message.message and "📊 Информация о диалоге:" in message.message
-        )

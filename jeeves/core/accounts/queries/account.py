@@ -107,6 +107,26 @@ class AccountQueries(BaseQueries):
         """Get all active accounts."""
         return await self.get_accounts_by_status(AccountStatus.active)
 
+    async def get_any_active_account(self) -> Optional[Account]:
+        """Get any active account with session."""
+        try:
+            query = (
+                select(Account)
+                .where(
+                    and_(
+                        Account.status == AccountStatus.active,
+                        Account.session_string.is_not(None),
+                    )
+                )
+                .order_by(Account.last_used_at.asc().nullsfirst())
+                .limit(1)
+            )
+            result = await self.session.execute(query)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Failed to get any active account: {e}")
+            return None
+
     async def get_available_accounts(self) -> List[Account]:
         """Get all available accounts."""
         try:

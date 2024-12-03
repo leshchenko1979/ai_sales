@@ -114,3 +114,19 @@ class ClientManager:
     def __len__(self) -> int:
         """Get number of active clients."""
         return len(self._clients)
+
+    @with_queries(AccountQueries)
+    async def get_any_client(self, queries: AccountQueries) -> Optional[AccountClient]:
+        """Get any available client from active accounts."""
+        try:
+            account = await queries.get_any_active_account()
+            if not account:
+                logger.error("No available accounts found")
+                return None
+
+            logger.debug(f"Using account {account.phone}")
+            return await self.get_client(account.phone, account.session_string)
+
+        except Exception as e:
+            logger.error(f"Error getting any client: {e}", exc_info=True)
+            return None

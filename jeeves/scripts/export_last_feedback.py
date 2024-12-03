@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.append(str(ROOT_DIR))
 
+from core.telegram import get_forum_topics
 from infrastructure.config import ANALYSIS_GROUP
 from utils.exporters.telegram_exporter import TelegramDialogExporter
 
@@ -26,14 +27,14 @@ async def export_last_dialog() -> None:
         logging.info(f"Looking for topics since {since_date}")
 
         # Get client and check group
-        client = await exporter._get_client()
+        client = await exporter.get_client()
         if not client:
-            logging.error("Failed to initialize Telegram client")
+            logging.error("Failed to get client")
             return
         logging.info("Got Telegram client")
 
         # Get recent topics
-        topics = await exporter._get_forum_topics(client, ANALYSIS_GROUP, since_date)
+        topics = await get_forum_topics(client, ANALYSIS_GROUP, since_date)
         if not topics:
             logging.error("No topics found in the last 24 hours")
             return
