@@ -3,6 +3,7 @@
 import logging
 from typing import List, Optional
 
+from core import db
 from core.db.base import BaseQueries
 from sqlalchemy import and_, select
 
@@ -145,3 +146,14 @@ class AccountQueries(BaseQueries):
         except Exception as e:
             logger.error(f"Failed to get available accounts: {e}")
             return []
+
+    @db.decorators.handle_sql_error("get_account_by_id")
+    async def get_account_by_id(self, account_id: int) -> Optional[Account]:
+        """Get account by ID."""
+        try:
+            query = select(Account).where(Account.id == account_id)
+            result = await self.session.execute(query)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Failed to get account by ID {account_id}: {e}")
+            return None

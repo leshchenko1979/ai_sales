@@ -70,19 +70,16 @@ class ProfileQueries(db.BaseQueries):
         return list(result.scalars().all())
 
     # Template Operations
-    @db.decorators.handle_sql_error("create_template")
     async def create_template(
         self,
         name: str,
         first_name: str,
         last_name: Optional[str] = None,
         bio: Optional[str] = None,
-        photo_path: Optional[str] = None,
+        photo: Optional[bytes] = None,
     ) -> Optional[models.ProfileTemplate]:
         """Create new profile template."""
-        template = self._create_template_obj(
-            name, first_name, last_name, bio, photo_path
-        )
+        template = self._create_template_obj(name, first_name, last_name, bio, photo)
         self.session.add(template)
         await self.session.flush()
         return template
@@ -96,6 +93,30 @@ class ProfileQueries(db.BaseQueries):
             .order_by(models.ProfileTemplate.name)
         )
         return list(result.scalars().all())
+
+    @db.decorators.handle_sql_error("delete_template")
+    async def delete_template(self, template_id: int) -> bool:
+        """Delete profile template."""
+        template = await self.session.get(models.ProfileTemplate, template_id)
+        if not template:
+            return False
+
+        template.is_active = False
+        await self.session.flush()
+        return True
+
+    @db.decorators.handle_sql_error("update_template")
+    async def update_template(self, template_id: int, **updates) -> bool:
+        """Update profile template."""
+        template = await self.session.get(models.ProfileTemplate, template_id)
+        if not template:
+            return False
+
+        for key, value in updates.items():
+            setattr(template, key, value)
+
+        await self.session.flush()
+        return True
 
     # Factory Methods
     @staticmethod
@@ -115,7 +136,7 @@ class ProfileQueries(db.BaseQueries):
         first_name: str,
         last_name: Optional[str] = None,
         bio: Optional[str] = None,
-        photo_path: Optional[str] = None,
+        photo: Optional[bytes] = None,
     ) -> models.ProfileTemplate:
         """Create ProfileTemplate object."""
         return models.ProfileTemplate(
@@ -123,7 +144,7 @@ class ProfileQueries(db.BaseQueries):
             first_name=first_name,
             last_name=last_name,
             bio=bio,
-            photo_path=photo_path,
+            photo=photo,
         )
 
     # Helper Methods
@@ -135,7 +156,7 @@ class ProfileQueries(db.BaseQueries):
         profile.first_name = template.first_name
         profile.last_name = template.last_name
         profile.bio = template.bio
-        profile.photo_path = template.photo_path
+        profile.photo = template.photo
         profile.is_synced = False
 
     async def _create_profile_history(
@@ -148,7 +169,7 @@ class ProfileQueries(db.BaseQueries):
             first_name=profile.first_name,
             last_name=profile.last_name,
             bio=profile.bio,
-            photo_path=profile.photo_path,
+            photo=profile.photo,
             change_type="template_applied",
         )
         self.session.add(history)
