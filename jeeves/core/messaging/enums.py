@@ -13,10 +13,13 @@ class MessageDirection(str, Enum):
 class DialogStatus(str, Enum):
     """Dialog status."""
 
-    active = "active"
-    closed = "closed"
-    blocked = "blocked"
-    rejected = "rejected"
-    not_qualified = "not_qualified"
-    meeting_scheduled = "meeting_scheduled"
-    stopped = "stopped"
+    # Active state
+    active = "active"  # Dialog is in progress
+
+    # Final states
+    success = "success"  # Successful outcome (meeting/info/etc)
+    rejected = "rejected"  # Explicit rejection
+    not_qualified = "not_qualified"  # Contact doesn't match criteria
+    blocked = "blocked"  # Account/dialog got blocked
+    expired = "expired"  # Dialog considered dead/no response
+    stopped = "stopped"  # Manually stopped

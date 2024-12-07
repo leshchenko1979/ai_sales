@@ -21,9 +21,10 @@ async def test_imports():
     from core.accounts.queries import AccountQueries  # noqa: F401
     from core.db import Base, BaseQueries, get_db  # noqa: F401
     from core.messaging import (  # noqa: F401
+        BaseDialogConductor,
         DeliveryOptions,
         DeliveryResult,
-        DialogConductor,
+        DialogConductorFactory,
         DialogQueries,
         DialogStatus,
         MessageDelivery,
@@ -49,7 +50,8 @@ async def test_imports():
         DeliveryOptions,
         DeliveryResult,
         MessageDelivery,
-        DialogConductor,
+        BaseDialogConductor,
+        DialogConductorFactory,
         MessageQueries,
         DialogQueries,
         app,
@@ -80,7 +82,14 @@ def test_message_delivery():
 
 def test_dialog_conductor():
     """Test dialog conductor imports."""
-    from core.messaging.conductor import DialogConductor  # noqa: F401
+    from core.ai.strategies.cold_meeting.conductor import (  # noqa: F401
+        ColdMeetingConductor,
+    )
+    from core.messaging import (  # noqa: F401
+        BaseDialogConductor,
+        DialogConductorFactory,
+        DialogStrategyType,
+    )
 
 
 def test_dialog_models():

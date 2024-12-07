@@ -1,12 +1,13 @@
 """Sales conversation advisor."""
 
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from infrastructure.config import DEFAULT_AI_PROVIDER
 
-from ..providers.base import AIProvider
-from .formatter import PromptFormatter
+from ...formatter import PromptFormatter
+from ...providers.base import AIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +15,12 @@ logger = logging.getLogger(__name__)
 class SalesAdvisor:
     """Provides conversation analysis and advice."""
 
-    def __init__(self, provider: Optional[AIProvider] = None):
+    def __init__(
+        self, provider: Optional[AIProvider] = None, prompts_path: Optional[Path] = None
+    ):
         """Initialize advisor."""
         self.provider = provider or AIProvider.create(DEFAULT_AI_PROVIDER)
-        self.prompt_formatter = PromptFormatter()
+        self.prompt_formatter = PromptFormatter(prompts_path=prompts_path)
 
     async def get_tip(
         self, dialog_history: List[Dict[str, str]]

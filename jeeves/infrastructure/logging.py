@@ -4,7 +4,7 @@ import logging
 import logging.handlers
 import sys
 
-from infrastructure.config import LOG_FORMAT, LOG_LEVEL, LOGS_DIR
+from .config import LOG_FORMAT, LOG_LEVEL, LOGS_DIR
 
 
 def setup_logging():

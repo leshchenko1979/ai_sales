@@ -33,7 +33,7 @@ class MessageDelivery:
     @with_queries(MessageQueries)
     async def deliver_messages(
         self,
-        dialog_id: int,
+        dialog_id: Optional[int],
         messages: List[str],
         send_func: Callable[[str], Any],
         queries: MessageQueries,
@@ -46,7 +46,7 @@ class MessageDelivery:
                 await self._queue_new_messages(messages)
 
                 success = await self._process_message_queue(
-                    dialog_id=dialog_id, send_func=send_func, queries=queries
+                    dialog_id=dialog_id or 0, send_func=send_func, queries=queries
                 )
                 return DeliveryResult(success=success)
 

@@ -1,4 +1,20 @@
-"""Telegram client initialization."""
+"""Telegram client initialization.
+
+Network architecture:
+- Jeeves uses Pyrogram library to interact with Telegram API
+- Connection is established via long polling (not webhooks)
+- No web server or open ports are required
+- Outbound internet access is needed for:
+  * Telegram API (api.telegram.org)
+  * Telegram MTProto servers (DC1-DC5)
+  * Media downloads/uploads if used
+
+Container configuration:
+- No port exposure needed in Dockerfile or docker-compose
+- No reverse proxy (Traefik/Nginx) integration needed
+- Only outbound internet access required
+- No special network configuration needed besides basic outbound connectivity
+"""
 
 import logging
 import os

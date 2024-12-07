@@ -26,3 +26,7 @@ sys.path.append(str(ROOT_DIR))
 
 Основное - это использование декоратора with_queries
 из /core/db/decorators.py.
+
+# SQL
+
+Комментарии в SQL-командах - только на английском

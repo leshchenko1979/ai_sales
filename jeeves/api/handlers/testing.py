@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, List
 
-from core.messaging.conductor import DialogConductor
+from core.messaging import DialogConductorFactory, DialogStrategyType
 from core.messaging.enums import DialogStatus
 from core.telegram import create_forum_topic, forward_messages_to_topic
 from core.telegram.client import app
@@ -14,30 +14,30 @@ from pyrogram.types import Message
 logger = logging.getLogger(__name__)
 
 # Store active test dialogs
-test_dialogs: Dict[int, DialogConductor] = {}
+test_dialogs: Dict[int, DialogConductorFactory] = {}
 # Store dialog messages for analysis
 dialog_messages: Dict[int, List[Message]] = {}
 
 # Status and tag mappings
 STATUS_TO_TAG = {
     DialogStatus.active: "#уточнение",  # Dialog is still active
-    DialogStatus.closed: "#продажа",  # Successful sale
+    DialogStatus.success: "#успех",  # Successful outcome
     DialogStatus.blocked: "#заблокировал",  # Blocked
     DialogStatus.rejected: "#отказ",  # Explicit rejection
     DialogStatus.not_qualified: "#неподходит",  # Not qualified
-    DialogStatus.meeting_scheduled: "#успех",  # Meeting scheduled
+    DialogStatus.expired: "#истек",  # No response/dead
     DialogStatus.stopped: "#остановлен",  # Manually stopped
 }
 
 TAG_DESCRIPTIONS = {
     "#уточнение": "Требуется уточнение деталей",
-    "#продажа": "Успешная продажа",
+    "#успех": "Успешный результат диалога",
     "#неподходит": "Клиент не соответствует критериям",
-    "#отказ": "Отказ от покупки",
-    "#успех": "Назначена встреча с клиентом",
+    "#отказ": "Отказ от предложения",
     "#тест": "Тестовый диалог с отделом продаж",
     "#заблокировал": "Клиент заблокировал бота",
     "#остановлен": "Диалог остановлен командой /stop",
+    "#истек": "Диалог истек без ответа",
 }
 
 
@@ -69,7 +69,11 @@ async def cmd_test_dialog(client: Client, message: Message):
             dialog_messages[user_id].append(sent_msg)
 
     try:
-        conductor = DialogConductor(send_func=send_message)
+        conductor = DialogConductorFactory.create_conductor(
+            strategy_type=DialogStrategyType.COLD_MEETING,
+            send_func=send_message,
+            telegram_id=user_id,
+        )
         test_dialogs[user_id] = conductor
         dialog_messages[user_id] = [message]
 

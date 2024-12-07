@@ -1,7 +1,8 @@
 """Prompt formatting and management."""
 
 import logging
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import yaml
 from infrastructure.config import PROMPTS_PATH
@@ -16,8 +17,14 @@ class PromptFormatError(Exception):
 class PromptFormatter:
     """Handles prompt formatting and management."""
 
-    def __init__(self):
-        """Initialize prompt formatter with system prompts."""
+    def __init__(self, prompts_path: Optional[Path] = None):
+        """
+        Initialize prompt formatter with system prompts.
+
+        Args:
+            prompts_path: Optional path to prompts file. If not provided, uses default path.
+        """
+        self.prompts_path = prompts_path or Path(PROMPTS_PATH)
         try:
             self.prompts = self._load_prompts()
             self.advisor_prompt = self.format_system_prompt(
@@ -32,11 +39,11 @@ class PromptFormatter:
     def _load_prompts(self) -> Dict[str, Any]:
         """Load and validate prompts from YAML file."""
         try:
-            with open(PROMPTS_PATH, "r", encoding="utf-8") as f:
+            with open(self.prompts_path, "r", encoding="utf-8") as f:
                 prompts = yaml.safe_load(f)
         except Exception as e:
             raise PromptFormatError(
-                f"Failed to load prompts from {PROMPTS_PATH}: {str(e)}"
+                f"Failed to load prompts from {self.prompts_path}: {str(e)}"
             )
 
         # Validate required sections

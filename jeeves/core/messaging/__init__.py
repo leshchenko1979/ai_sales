@@ -1,6 +1,7 @@
 """Messaging package."""
 
-from .conductor import DialogConductor
+from .base import BaseDialogConductor, DialogStrategyType
+from .conductor import DialogConductorFactory
 from .delivery import MessageDelivery
 from .enums import DialogStatus, MessageDirection
 from .models import DeliveryOptions, DeliveryResult, Dialog, Message
@@ -12,9 +13,12 @@ __all__ = [
     "DeliveryOptions",
     "DeliveryResult",
     "MessageDelivery",
-    "DialogConductor",
-    "MessageQueries",
     "DialogQueries",
+    "MessageQueries",
     "Dialog",
     "Message",
+    # Conductor exports
+    "BaseDialogConductor",
+    "DialogConductorFactory",
+    "DialogStrategyType",
 ]

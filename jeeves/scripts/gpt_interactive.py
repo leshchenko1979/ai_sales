@@ -4,17 +4,12 @@
 import asyncio
 import logging
 import sys
-from pathlib import Path
 
 # Third-party imports
 import aioconsole
 
-# Setup path
-root_dir = Path(__file__).parent.parent
-sys.path.append(str(root_dir))
-
 # Local imports
-from core.messaging import DialogConductor
+from core.messaging import DialogConductorFactory, DialogStrategyType
 
 
 class TerminalColors:
@@ -49,10 +44,13 @@ def setup_logging() -> logging.Logger:
 class InteractiveDialog:
     """Interactive dialog handler."""
 
-    def __init__(self):
+    def __init__(
+        self, strategy_type: DialogStrategyType = DialogStrategyType.COLD_MEETING
+    ):
         """Initialize dialog handler."""
         self.logger = setup_logging()
         self.conductor = None
+        self.strategy_type = strategy_type
 
     async def print_message(self, text: str) -> None:
         """Print bot message with blue color."""
@@ -74,8 +72,10 @@ class InteractiveDialog:
                 return False
 
             # Process message in background
-            asyncio.create_task(self.conductor.handle_message(user_message))
-            return True
+            is_complete, error = await self.conductor.handle_message(user_message)
+            if error:
+                self.logger.error("Error processing message: %s", error)
+            return not is_complete
 
         except (EOFError, KeyboardInterrupt):
             self.logger.info("Received exit signal, stopping dialog...")
@@ -87,8 +87,11 @@ class InteractiveDialog:
     async def run(self):
         """Run interactive dialog."""
         try:
-            # Initialize conductor
-            self.conductor = DialogConductor(send_func=self.print_message)
+            # Initialize conductor using factory
+            self.conductor = DialogConductorFactory.create_conductor(
+                strategy_type=self.strategy_type,
+                send_func=self.print_message,
+            )
             await self.conductor.start_dialog()
 
             # Main dialog loop
@@ -104,3 +107,7 @@ def main():
     """Main entry point."""
     dialog = InteractiveDialog()
     asyncio.run(dialog.run())
+
+
+if __name__ == "__main__":
+    main()

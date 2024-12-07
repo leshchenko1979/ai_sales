@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
     from core.accounts.models.account import Account
+    from core.campaigns.models import Campaign
 
 
 DateTimeType = Annotated[
@@ -28,6 +29,9 @@ class Dialog(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str] = mapped_column(String)
     account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("accounts.id"))
+    campaign_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("campaigns.id"), nullable=True
+    )
     last_message_at: Mapped[DateTimeType]
     is_active: Mapped[bool] = mapped_column(default=True)
     status: Mapped[DialogStatus] = mapped_column(
@@ -47,6 +51,9 @@ class Dialog(Base):
     )
     account: Mapped["Account"] = relationship(
         "Account", back_populates="dialogs", lazy="selectin"
+    )
+    campaign: Mapped["Campaign"] = relationship(
+        "Campaign", back_populates="dialogs", lazy="selectin"
     )
 
     @property

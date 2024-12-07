@@ -8,16 +8,27 @@
   - `profile.py` - модели профилей и их истории
 - Диалоги и сообщения (`jeeves/core/messaging/models/`)
   - `dialog.py` - модели диалогов и их статусы
-  - `message.py` - модели сообщений и направления
+  - `message.py` - модели сообщения и направления
+- Аудитории и контакты (`jeeves/core/audiences/models/`)
+  - `models.py` - модели аудиторий и контактов
+- Компании и кампании (`jeeves/core/companies/models/`)
+  - `company.py` - модели компаний и их настройки
+  - `campaign.py` - модели рекламных кампаний
 
 ### Общая схема
 ```mermaid
 erDiagram
     Account ||--o| AccountProfile : has
     Account ||--o{ Dialog : manages
+    Account }|--o{ Campaign : participates
     AccountProfile ||--o{ ProfileHistory : tracks
     AccountProfile ||--o| ProfileTemplate : uses
     Dialog ||--o{ Message : contains
+    Dialog }o--o| Campaign : belongs_to
+    Dialog ||--|| Contact : with
+    Audience ||--o{ Contact : contains
+    Campaign }|--o{ Audience : targets
+    Company ||--o{ Campaign : owns
 
     Account {
         bigint id PK
@@ -51,6 +62,8 @@ erDiagram
         bigint id PK
         string username
         bigint account_id FK
+        bigint campaign_id FK
+        bigint contact_id FK
         datetime last_message_at
         bool is_active
         enum status
@@ -64,6 +77,45 @@ erDiagram
         enum direction
         string content
         datetime timestamp
+        datetime created_at
+        datetime updated_at
+    }
+
+    Contact {
+        bigint id PK
+        string telegram_username
+        bigint telegram_id
+        string phone
+        bool is_valid
+        datetime created_at
+        datetime updated_at
+    }
+
+    Audience {
+        bigint id PK
+        string name
+        text description
+        enum status
+        datetime created_at
+        datetime updated_at
+    }
+
+    Campaign {
+        bigint id PK
+        bigint company_id FK
+        string name
+        text description
+        enum status
+        datetime created_at
+        datetime updated_at
+    }
+
+    Company {
+        bigint id PK
+        string name UK
+        text description
+        json settings
+        bool is_active
         datetime created_at
         datetime updated_at
     }
@@ -82,7 +134,7 @@ async def get_accounts(queries: AccountQueries):
     return await queries.get_all_accounts()
 
 # Несколько классов запросов
-@with_queries(DialogQueries, AccountQueries)
+@with_queries((DialogQueries, AccountQueries))
 async def start_dialog(
     dialog_queries: DialogQueries,
     account_queries: AccountQueries
@@ -106,7 +158,7 @@ async def check_account(queries: AccountQueries):
     account = await queries.get_account_by_phone(phone)
     return account.status == AccountStatus.active
 
-@with_queries(DialogQueries, AccountQueries)
+@with_queries((DialogQueries, AccountQueries))
 async def process_dialog(
     dialog_queries: DialogQueries,
     account_queries: AccountQueries

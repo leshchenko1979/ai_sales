@@ -1,12 +1,13 @@
 """AI-powered sales response generation."""
 
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from infrastructure.config import DEFAULT_AI_PROVIDER
 
-from ..providers.base import AIProvider
-from .formatter import PromptFormatter
+from ...formatter import PromptFormatter
+from ...providers.base import AIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -14,15 +15,18 @@ logger = logging.getLogger(__name__)
 class SalesManager:
     """Generates AI-powered sales responses."""
 
-    def __init__(self, provider: Optional[AIProvider] = None):
+    def __init__(
+        self, provider: Optional[AIProvider] = None, prompts_path: Optional[Path] = None
+    ):
         """
         Initialize sales manager.
 
         Args:
             provider: Optional AI provider instance. If not provided, uses default provider.
+            prompts_path: Optional path to prompts file. If not provided, uses default path.
         """
         self.provider = provider or AIProvider.create(DEFAULT_AI_PROVIDER)
-        self.prompt_formatter = PromptFormatter()
+        self.prompt_formatter = PromptFormatter(prompts_path=prompts_path)
 
     async def get_response(
         self,
