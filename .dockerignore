@@ -1,0 +1,33 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Test
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Project specific
+exports/
+sessions/
+sources/
+notebooks/
+docs/
+
+# Misc
+*.log
+.DS_Store

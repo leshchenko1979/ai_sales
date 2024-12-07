@@ -4,19 +4,49 @@
 /.vscode
 
 # Python
-__pycache__
-venv
-*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Project data directories
-/sessions/
-/logs/
-/data/
-/exports/
+# Virtual Environment
+venv/
+ENV/
+env/
 
-# Log and session files
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+.env
 *.log
-*.session
-jeeves.session
-jeeves/logs/jeeves.log
-jeeves/exports/
+exports/
+sessions/
+sources/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Misc
+.DS_Store
