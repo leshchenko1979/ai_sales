@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  jeeves:
+    build: .
+    container_name: jeeves
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - default
+
+networks:
+  default:

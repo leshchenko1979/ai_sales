@@ -1,8 +1,10 @@
 pyrogram
-tgcrypto
 sqlalchemy
 asyncpg
 aiohttp
+sqlalchemy-utils
 pyyaml
 openai
 python-dotenv
+pytest
+pytest-asyncio
