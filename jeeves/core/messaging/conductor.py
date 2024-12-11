@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, Optional, Type
 
 from core.messaging.base import BaseDialogConductor, DialogStrategyType
 from core.messaging.queries import DialogQueries, MessageQueries
+from infrastructure.logging import trace
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 MAX_QUEUE_SIZE = 10  # maximum number of pending messages
 
 
+@trace
 class DialogConductorFactory:
     """Factory for creating dialog conductors."""
 

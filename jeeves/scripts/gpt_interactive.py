@@ -10,6 +10,9 @@ import aioconsole
 
 # Local imports
 from core.messaging import DialogConductorFactory, DialogStrategyType
+from infrastructure.logging import setup_logging
+
+setup_logging()
 
 
 class TerminalColors:

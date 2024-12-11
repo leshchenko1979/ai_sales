@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from infrastructure.config import DEFAULT_AI_PROVIDER
+from infrastructure.logging import trace
 
 from ...formatter import PromptFormatter
 from ...providers.base import AIProvider
@@ -12,6 +13,7 @@ from ...providers.base import AIProvider
 logger = logging.getLogger(__name__)
 
 
+@trace
 class SalesAdvisor:
     """Provides conversation analysis and advice."""
 

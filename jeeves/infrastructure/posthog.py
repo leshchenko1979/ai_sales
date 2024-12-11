@@ -6,9 +6,6 @@ from typing import Any, Dict, Optional
 
 from posthog import Posthog
 
-from .logging import setup_logging
-
-setup_logging()
 logger = logging.getLogger(__name__)
 
 

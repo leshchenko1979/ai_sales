@@ -3,13 +3,15 @@
 import asyncio
 import contextlib
 import logging
-from typing import List, Optional, Set, Tuple
+from pathlib import Path
+from typing import Any, Callable, List, Optional, Set, Tuple
 
 from core.db.decorators import with_queries
 from core.messaging.base import BaseDialogConductor, DialogStrategyType
 from core.messaging.delivery import DeliveryInterrupted
 from core.messaging.models import DialogStatus
 from core.messaging.queries import DialogQueries, MessageQueries
+from infrastructure.logging import trace
 
 from .advisor import SalesAdvisor
 from .manager import SalesManager
@@ -22,9 +24,24 @@ class ColdMeetingConductor(BaseDialogConductor):
 
     strategy_type = DialogStrategyType.COLD_MEETING
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        send_func: Callable[[str], Any],
+        dialog_id: Optional[int] = None,
+        dialog_queries: Optional[DialogQueries] = None,
+        message_queries: Optional[MessageQueries] = None,
+        prompts_path: Optional[Path] = None,
+        telegram_id: Optional[int] = None,
+    ):
         """Initialize cold meeting conductor."""
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            send_func=send_func,
+            dialog_id=dialog_id,
+            dialog_queries=dialog_queries,
+            message_queries=message_queries,
+            prompts_path=prompts_path,
+            telegram_id=telegram_id,
+        )
 
         # Initialize AI components with prompts path
         self.sales = SalesManager(prompts_path=self.prompts_path)
@@ -35,6 +52,7 @@ class ColdMeetingConductor(BaseDialogConductor):
         self._ai_task: Optional[asyncio.Task] = None
         self._responded_messages: Set[str] = set()
 
+    @trace
     @with_queries((DialogQueries, MessageQueries))
     async def start_dialog(
         self,
@@ -71,6 +89,7 @@ class ColdMeetingConductor(BaseDialogConductor):
             logger.error(f"Error starting dialog: {e}", exc_info=True)
             raise
 
+    @trace
     @with_queries((DialogQueries, MessageQueries))
     async def handle_message(
         self,

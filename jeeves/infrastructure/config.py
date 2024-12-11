@@ -10,13 +10,18 @@ dotenv.load_dotenv()
 
 # Base paths
 ROOT_DIR: Final[Path] = Path(__file__).parent.parent.parent
+
+# Determine if we're running in Docker
+IN_CONTAINER: Final[bool] = os.path.exists("/.dockerenv")
+
+# Set paths based on environment
 DATA_DIR: Final[Path] = ROOT_DIR / "data"
-LOGS_DIR: Final[Path] = ROOT_DIR / "logs"
+LOGS_DIR: Final[Path] = Path("/jeeves/logs") if IN_CONTAINER else ROOT_DIR / "logs"
 EXPORTS_DIR: Final[Path] = ROOT_DIR / "exports"
 
 # Create directories if they don't exist
 for directory in [DATA_DIR, LOGS_DIR, EXPORTS_DIR]:
-    directory.mkdir(exist_ok=True)
+    directory.mkdir(exist_ok=True, parents=True)
 
 # Application
 APP_NAME: Final[str] = "Jeeves"
@@ -68,7 +73,7 @@ WARMUP_MESSAGES: Final[int] = int(os.getenv("WARMUP_MESSAGES", "5"))
 CHECK_INTERVAL: Final[int] = int(os.getenv("CHECK_INTERVAL", str(60 * 5)))  # 5 minutes
 
 # Logging
-LOG_LEVEL: Final[str] = os.getenv("LOG_LEVEL", "DEBUG")
+LOG_LEVEL: Final[str] = os.getenv("LOG_LEVEL", "TRACE")
 LOG_FORMAT: Final[str] = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 # Export settings

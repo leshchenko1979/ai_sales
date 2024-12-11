@@ -28,20 +28,7 @@ async def main():
             ]
 
             await app.set_bot_commands(commands)
-            logger.info("Bot commands set successfully")
-
-            # Log welcome message
-            welcome_message = """
-            🤖 Бот для тестирования холодных продаж открытого девелопмента запущен!
-
-            Как начать:
-            1. Используйте команду /test_dialog чтобы начать диалог
-            2. После завершения диалога вы сможете оставить обратную связь
-            3. Все диалоги сохраняются для анализа
-
-            Удачного тестирования! 🚀
-            """
-            logger.info(welcome_message)
+            logger.trace("Bot commands set successfully, starting idle loop")
 
             # Wait for stop signal
             await idle()
@@ -55,7 +42,7 @@ async def main():
             try:
                 client_manager = ClientManager()
                 await client_manager.stop_all()
-                logger.info("All clients stopped successfully")
+                logger.trace("All clients stopped successfully")
             except Exception as e:
                 logger.error(f"Error stopping clients: {e}", exc_info=True)
 
@@ -63,13 +50,13 @@ async def main():
             try:
                 session_string = await app.export_session_string()
                 if save_session(session_string):
-                    logger.info("Saved session string")
+                    logger.trace("Saved session string")
                 else:
                     logger.warning("Failed to save session string")
             except Exception as e:
                 logger.error(f"Error saving session: {e}", exc_info=True)
 
-    logger.info("Bot stopped successfully")
+    logger.trace("Bot stopped successfully")
 
 
 if __name__ == "__main__":
@@ -77,6 +64,6 @@ if __name__ == "__main__":
     try:
         app.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot shutdown requested by user")
+        logger.trace("Bot shutdown requested by user")
     except Exception as e:
         logger.critical(f"Unexpected error: {e}", exc_info=True)

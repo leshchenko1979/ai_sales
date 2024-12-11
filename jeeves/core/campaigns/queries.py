@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from core.db.queries import BaseQueries
+from core.db.base import BaseQueries
 from sqlalchemy import select
 
 from .models import Campaign, CampaignStatus
@@ -74,7 +74,7 @@ class CampaignQueries(BaseQueries):
         self, campaign_id: int, template_id: int
     ) -> Optional[Campaign]:
         """Add profile template to campaign."""
-        from core.profiles.queries import ProfileTemplateQueries
+        from core.accounts.queries.profile import ProfileTemplateQueries
 
         campaign = await self.get_campaign(campaign_id)
         if not campaign:
