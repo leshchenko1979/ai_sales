@@ -1,7 +1,4 @@
-FROM python:3.11-slim
-
-# Set working directory
-WORKDIR /app
+FROM python:3-slim AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -12,17 +9,39 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir /wheels \
+    -r requirements.txt python-dotenv
 
-# Copy only the jeeves directory
-COPY jeeves/ /app/jeeves/
+# Final stage
+FROM python:3-slim
+
+COPY --from=builder /wheels /wheels
+COPY --from=builder /requirements.txt .
+RUN pip install --no-cache /wheels/*
+
+# Copy the .env file
+COPY .env .
+
+# Copy the jeeves directory
+COPY jeeves /jeeves
 
 # Set environment variables
-ENV PYTHONPATH=/app/jeeves
+ENV PYTHONPATH=/jeeves
 ENV PYTHONUNBUFFERED=1
 
-# Change to the jeeves directory
-WORKDIR /app/jeeves
+# Set working directory
+WORKDIR /jeeves
 
-# Command to run the application
-CMD ["python", "main.py"]
+# Test imports
+RUN python -c "import dotenv; dotenv.load_dotenv('.env'); from main import main; print('Main module imported successfully!')"
+
+# Add Tini
+ENV TINI_VERSION v0.19.0
+ADD https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini
+RUN chmod +x /tini
+
+# Use tini with subreaper support
+ENTRYPOINT ["/tini", "-s", "--"]
+
+# Run Python with proper signal handling
+CMD ["python", "-u", "-m", "main"]

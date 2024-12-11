@@ -9,7 +9,6 @@ __pycache__/
 *.so
 .Python
 venv/
-.env
 
 # IDE
 .vscode/
@@ -22,11 +21,15 @@ tests/
 htmlcov/
 
 # Project specific
-exports/
-sessions/
-sources/
-notebooks/
-docs/
+**/exports/
+**/sessions/
+**/sources/
+**/notebooks/
+**/docs/
+**/logs/
+**/data/
+**/scripts/
+**/tests/
 
 # Misc
 *.log

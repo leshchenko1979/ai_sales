@@ -7,3 +7,4 @@ pyyaml
 openai
 python-dotenv
 posthog
+greenlet

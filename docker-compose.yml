@@ -1,13 +1,29 @@
-version: '3'
-
 services:
   jeeves:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: jeeves
     restart: unless-stopped
-    env_file: .env
+    stop_grace_period: 10s
+    stop_signal: SIGTERM
+    init: true
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/jeeves
+      - PYTHONUNBUFFERED=1
     networks:
-      - default
+      - traefik-public
+    volumes:
+      - ./logs:/jeeves/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
 networks:
-  default:
+  traefik-public:
+    external: true

@@ -63,66 +63,71 @@ fi
 
 echo "Starting deployment of Jeeves to ${REMOTE_HOST}..."
 
-# Check Docker and Docker Compose installation on remote
-echo "Checking Docker installation..."
+# Set up logs directory structure and permissions
+echo "Setting up logs directory structure..."
 ssh ${REMOTE_USER}@${REMOTE_HOST} '
-    if ! command -v docker &> /dev/null; then
-        echo "Docker is not installed. Installing Docker..."
-        curl -fsSL https://get.docker.com -o get-docker.sh
-        sudo sh get-docker.sh
-        sudo usermod -aG docker $USER
-        rm get-docker.sh
-    fi
+    # Create and set up new logs directory
+    rm -rf /home/jeeves/*
+    mkdir -p /home/jeeves/logs
 
-    if ! command -v docker compose &> /dev/null; then
-        echo "Docker Compose is not installed. Installing Docker Compose..."
-        sudo curl -L "https://github.com/docker/compose/releases/download/v2.23.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-        sudo chmod +x /usr/local/bin/docker-compose
-        sudo ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
-    fi
+    # Set proper ownership and permissions
+    chown -R jeeves:jeeves /home/jeeves/logs
+    chmod 755 /home/jeeves/logs
 '
 
-# Create deployment directory
-echo "Creating remote directory structure..."
-ssh ${REMOTE_USER}@${REMOTE_HOST} "mkdir -p /home/jeeves/docker"
+# Remove local tar file if it exists
+echo "Creating Python package archive..."
 
-# Copy necessary files
-echo "Copying Docker files..."
-scp Dockerfile docker-compose.yml .dockerignore .env ${REMOTE_USER}@${REMOTE_HOST}:/home/jeeves/docker/
-
-# Create a temporary directory for the build
-echo "Preparing project files..."
 TEMP_DIR=$(mktemp -d)
-
-# Create tar archive directly, skipping the temporary copy step
-echo "Creating deployment archive..."
+if [ -f "$TEMP_DIR/jeeves.tar.gz" ]; then
+    rm "$TEMP_DIR/jeeves.tar.gz"
+fi
 tar \
-    --exclude-from=.dockerignore \
-    --exclude-from=.gitignore \
     --exclude='venv' \
     --exclude='*.pyc' \
     --exclude='__pycache__' \
     --exclude='.git' \
     --exclude='.pytest_cache' \
     --exclude='node_modules' \
-    -czf "$TEMP_DIR/deploy.tar.gz" .
+    --exclude='Dockerfile' \
+    --exclude='docker-compose.yml' \
+    --exclude='.env' \
+    --exclude='.dockerignore' \
+    -czf "$TEMP_DIR/jeeves.tar.gz" jeeves/
 
-# Copy and extract files
-echo "Copying project files..."
-scp "$TEMP_DIR/deploy.tar.gz" ${REMOTE_USER}@${REMOTE_HOST}:/home/jeeves/docker/
-ssh ${REMOTE_USER}@${REMOTE_HOST} "cd /home/jeeves/docker && tar xzf deploy.tar.gz && rm deploy.tar.gz"
+# Copy and extract Python package
+echo "Copying and extracting Python package..."
+scp "$TEMP_DIR/jeeves.tar.gz" ${REMOTE_USER}@${REMOTE_HOST}:/home/jeeves/
+ssh ${REMOTE_USER}@${REMOTE_HOST} "cd /home/jeeves && tar xzf jeeves.tar.gz && rm jeeves.tar.gz && ls -la"
+
+# Copy Docker configuration files
+echo "Copying Docker configuration files..."
+scp Dockerfile docker-compose.yml .dockerignore .env ${REMOTE_USER}@${REMOTE_HOST}:/home/jeeves/
+
+# Copy requirements and app files to the correct location
+scp requirements.txt ${REMOTE_USER}@${REMOTE_HOST}:/home/jeeves/
 
 # Clean up
 rm -rf "$TEMP_DIR"
 
-# Build and deploy on remote using full paths
+# Build and deploy on remote
 echo "Building and starting Docker container..."
 ssh ${REMOTE_USER}@${REMOTE_HOST} '
-    cd /home/jeeves/docker && \
+    cd /home/jeeves && \
     if command -v docker compose &> /dev/null; then
-        docker compose down && docker compose up -d --build
+        echo "Stopping existing container..."
+        docker compose stop --timeout 10 || true
+        echo "Removing container..."
+        docker compose rm -f || true
+        echo "Building and starting new container..."
+        docker compose up -d --build
     else
-        /usr/local/bin/docker-compose down && /usr/local/bin/docker-compose up -d --build
+        echo "Stopping existing container..."
+        /usr/local/bin/docker-compose stop --timeout 10 || true
+        echo "Removing container..."
+        /usr/local/bin/docker-compose rm -f || true
+        echo "Building and starting new container..."
+        /usr/local/bin/docker-compose up -d --build
     fi
 '
 
