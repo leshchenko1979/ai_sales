@@ -4,6 +4,7 @@ import logging
 
 from api import handlers  # noqa: F401
 from core.accounts.client_manager import ClientManager
+from core.scheduler import Scheduler
 from core.telegram import app
 from core.telegram.session import save_session
 from infrastructure.logging import setup_logging
@@ -16,14 +17,19 @@ logger = logging.getLogger(__name__)
 
 async def main():
     """Main application entry point."""
+    # Initialize scheduler
+    scheduler = Scheduler()
+    await scheduler.start()
+    logger.trace("Scheduler started")
 
     async with app:  # Automatic session management
         try:
-            logger.info("Bot started successfully")
+            logger.trace("Bot started successfully")
 
             # Set bot commands for testing mode
             commands = [
                 types.BotCommand("test_dialog", "Начать тестовый диалог"),
+                types.BotCommand("stop", "Остановить тестовый диалог"),
                 types.BotCommand("help", "Справка"),
             ]
 
@@ -38,6 +44,13 @@ async def main():
             raise
 
         finally:
+            # Stop scheduler
+            try:
+                await scheduler.stop()
+                logger.trace("Scheduler stopped")
+            except Exception as e:
+                logger.error(f"Error stopping scheduler: {e}", exc_info=True)
+
             # Cleanup all clients
             try:
                 client_manager = ClientManager()

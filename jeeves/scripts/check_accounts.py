@@ -104,3 +104,7 @@ def main():
     """Main entry point."""
     checker = AccountChecker()
     asyncio.run(checker.check_accounts())
+
+
+if __name__ == "__main__":
+    main()

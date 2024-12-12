@@ -1,22 +1,19 @@
-"""Test account authorization flow."""
+"""Account authorization script."""
 
-# Standard library
 import asyncio
-import logging
 import sys
 from pathlib import Path
 from typing import Optional
 
-# Setup path
-root_dir = Path(__file__).parent.parent
-sys.path.append(str(root_dir))
-
-# Local imports
 from core.accounts.client import AccountClient
-from core.accounts.manager import AccountManager
-from core.accounts.models import AccountStatus
-from core.accounts.monitoring import AccountMonitor
-from infrastructure.logging import setup_logging
+from core.accounts.models.account import AccountStatus
+from infrastructure import logging
+
+ROOT_DIR = Path(__file__).parent.parent
+sys.path.append(str(ROOT_DIR))
+
+from core.accounts import AccountManager
+from core.accounts.monitor import AccountMonitor
 
 
 class AccountAuthorizer:
@@ -184,7 +181,7 @@ def main():
     """Main entry point."""
     try:
         # Setup logging
-        setup_logging()
+        logging.setup_logging()
         setup_pyrogram_logging()
 
         # Run test
