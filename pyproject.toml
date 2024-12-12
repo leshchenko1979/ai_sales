@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jeeves"
+version = "0.1.0"
+description = "Jeeves AI Assistant"
+requires-python = ">=3.9"
+dependencies = [
+    "sqlalchemy>=2.0.0",
+    "aiosqlite>=0.19.0",
+    "questionary>=2.0.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = [
+    "./jeeves"
+]
+testpaths = [
+    "tests"
+]
