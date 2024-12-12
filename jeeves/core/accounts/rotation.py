@@ -1,16 +1,15 @@
-"""Account rotation module."""
+"""Account rotation functionality."""
 
 import logging
 from typing import List
 
-from core.accounts.models.account import AccountStatus
 from core.db import with_queries
 
 from .client import AccountClient
-from .models import Account
-from .monitoring import AccountMonitor
+from .models import Account, AccountStatus
+from .monitor import AccountMonitor
 from .notifications import AccountNotifier
-from .queries.account import AccountQueries
+from .queries import AccountQueries
 
 logger = logging.getLogger(__name__)
 

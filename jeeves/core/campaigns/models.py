@@ -1,24 +1,9 @@
 from datetime import datetime
-from enum import Enum
-from typing import List
 
-from core.audiences.models import Audience
 from core.db import Base
-from core.db.tables import (
-    campaigns_accounts,
-    campaigns_audiences,
-    campaigns_profile_templates,
-)
-from sqlalchemy import DateTime
-from sqlalchemy import Enum as SQLAEnum
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-
-
-class CampaignStatus(Enum):
-    active = "active"
-    inactive = "inactive"
 
 
 class Campaign(Base):
@@ -28,26 +13,17 @@ class Campaign(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
-    status: Mapped[CampaignStatus] = mapped_column(SQLAEnum(CampaignStatus))
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # Тип диалогового движка (например, "cold_sales", "survey", etc)
-    dialog_engine_type: Mapped[str] = mapped_column(String(50))
+    # Dialog strategy type (e.g. "cold_meetings", etc)
+    dialog_strategy: Mapped[str] = mapped_column(String(50))
 
-    # Шаблон промпта для этой кампании
-    prompt_template: Mapped[str] = mapped_column(String)
-
-    # Связи
-    accounts = relationship(
-        "Account", secondary=campaigns_accounts, back_populates="campaigns"
+    # Direct relationships (not many-to-many)
+    dialogs = relationship(
+        "Dialog", back_populates="campaign", cascade="all, delete-orphan"
     )
-    profile_templates = relationship(
-        "ProfileTemplate", secondary=campaigns_profile_templates, lazy="selectin"
-    )
-    dialogs = relationship("Dialog", back_populates="campaign")
-    audiences: Mapped[List["Audience"]] = relationship(
-        secondary=campaigns_audiences, back_populates="campaigns", lazy="selectin"
-    )
+    company = relationship("Company", back_populates="campaigns")
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(

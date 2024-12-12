@@ -5,7 +5,6 @@ from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Optional
 
 from core.db.models import Base, TimestampType
-from core.db.tables import campaigns_accounts
 from infrastructure.config import MAX_MESSAGES_PER_DAY, MAX_MESSAGES_PER_HOUR
 from sqlalchemy import BigInteger, Boolean, DateTime
 from sqlalchemy import Enum as SQLEnum
@@ -62,15 +61,20 @@ class Account(Base):
 
     # Relationships
     dialogs: Mapped[list["Dialog"]] = relationship(
-        "Dialog", back_populates="account", lazy="selectin"
+        "Dialog",
+        back_populates="account",
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
     profile: Mapped[Optional["AccountProfile"]] = relationship(
-        "AccountProfile", back_populates="account", uselist=False, lazy="selectin"
+        "AccountProfile",
+        back_populates="account",
+        uselist=False,
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
 
-    campaigns = relationship(
-        "Campaign", secondary=campaigns_accounts, back_populates="accounts"
-    )
+    # Note: campaigns relationship is defined in core.db.tables to avoid circular imports
 
     def __init__(self, **kwargs):
         """Initialize account with normalized phone number."""

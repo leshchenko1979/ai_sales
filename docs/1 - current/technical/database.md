@@ -104,8 +104,8 @@ erDiagram
         bigint id PK
         bigint company_id FK
         string name
-        text description
-        enum status
+        string dialog_strategy
+        bool is_active
         datetime created_at
         datetime updated_at
     }
@@ -113,8 +113,7 @@ erDiagram
     Company {
         bigint id PK
         string name UK
-        text description
-        json settings
+        json descriptions
         bool is_active
         datetime created_at
         datetime updated_at
@@ -122,6 +121,127 @@ erDiagram
 ```
 
 ## Работа с базой данных
+
+### Активные/неактивные записи
+
+Для полей, обозначающих активность записи, используется булево поле `is_active`:
+
+```python
+class Company(Base):
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+class Campaign(Base):
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+```
+
+### Именование Enum значений
+
+Все значения в Enum классах должны быть в нижнем регистре:
+
+```python
+class AccountStatus(str, Enum):
+    """Account status enum."""
+    new = "new"              # ✅ Правильно
+    active = "active"        # ✅ Правильно
+    disabled = "disabled"    # ✅ Правильно
+
+    NEW = "new"              # ❌ Неправильно
+    ACTIVE = "active"        # ❌ Неправильно
+    DISABLED = "disabled"    # ❌ Неправильно
+```
+
+### Отношения между моделями
+
+#### Избегание циклических импортов
+
+Для избежания циклических импортов между моделями, все many-to-many отношения должны быть определены в `tables.py`:
+
+1. Определите таблицы связей с явным указанием поведения при удалении:
+```python
+campaigns_accounts = Table(
+    "campaigns_accounts",
+    Base.metadata,
+    Column(
+        "campaign_id",
+        Integer,
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        primary_key=True
+    ),
+    Column(
+        "account_id",
+        Integer,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        primary_key=True
+    ),
+)
+```
+
+2. Оп��еделите функцию настройки отношений с явным указанием каскадного поведения:
+```python
+def setup_relationships():
+    """Set up relationships between models."""
+    Campaign.accounts = relationship(
+        "Account",
+        secondary=campaigns_accounts,
+        back_populates="campaigns",
+        cascade="save-update",  # Только сохранение и обновление
+        passive_deletes=True,   # Удаление через БД
+    )
+    Account.campaigns = relationship(
+        "Campaign",
+        secondary=campaigns_accounts,
+        back_populates="accounts",
+        cascade="save-update",
+        passive_deletes=True,
+    )
+```
+
+3. Вызовите функцию при инициализации:
+```python
+# В core/db/__init__.py
+from .tables import setup_relationships
+
+# Set up model relationships
+setup_relationships()
+```
+
+#### Правила работы с отношениями
+
+✅ Правильно:
+```python
+# Определение отношений в одном месте (tables.py)
+Campaign.accounts = relationship(
+    "Account",
+    secondary=campaigns_accounts,
+    back_populates="campaigns",
+    cascade="save-update",
+    passive_deletes=True,
+)
+
+# Использование SQL для удаления связей
+stmt = delete(campaigns_accounts).where(
+    campaigns_accounts.c.campaign_id == campaign_id,
+    campaigns_accounts.c.account_id == account_id
+)
+await session.execute(stmt)
+
+# Обновление списка через append/remove
+campaign.accounts.append(account)
+campaign.accounts.remove(account)
+```
+
+❌ Неправильно:
+```python
+# Дублирование определений отношений в моделях
+class Account(Base):
+    campaigns = relationship(...)  # Не определяйте здесь
+
+# Прямое присваивание списка без проверки
+campaign.accounts = []  # Используйте remove() или SQL DELETE
+
+# Удаление записей вместо связей
+await session.delete(account)  # Удаляет сам аккаунт
+```
 
 ### Декоратор @with_queries
 
@@ -184,3 +304,195 @@ async def bad_operation():
         # Связанная операция
         pass
 ```
+
+# Database Design and Usage
+
+This document describes the database design principles and usage patterns in the project.
+
+## Model Relationships
+
+### Many-to-Many Relationships
+
+For many-to-many relationships, define association tables with proper cascade behavior and indexes:
+
+```python
+# Association table
+my_association = Table(
+    "my_association",
+    Base.metadata,
+    Column(
+        "left_id",
+        Integer,
+        ForeignKey("left.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True
+    ),
+    Column(
+        "right_id",
+        Integer,
+        ForeignKey("right.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True
+    ),
+)
+
+# Left model
+class Left(Base):
+    rights: Mapped[List["Right"]] = relationship(
+        secondary=my_association,
+        back_populates="lefts",
+        passive_deletes=True,  # Let DB handle cascade deletes
+        lazy="selectin"  # For small collections
+    )
+
+# Right model
+class Right(Base):
+    lefts: Mapped[List["Left"]] = relationship(
+        secondary=my_association,
+        back_populates="rights",
+        passive_deletes=True,
+        lazy="selectin"
+    )
+```
+
+### One-to-One Relationships
+
+For one-to-one relationships, use `uselist=False` and appropriate cascade behavior:
+
+```python
+# Parent model
+profile: Mapped[Optional["Profile"]] = relationship(
+    "Profile",
+    back_populates="parent",
+    uselist=False,
+    cascade="all, delete-orphan"
+)
+
+# Child model
+parent_id: Mapped[int] = mapped_column(
+    BigInteger,
+    ForeignKey("parents.id", ondelete="CASCADE"),
+    unique=True,
+    index=True
+)
+```
+
+### One-to-Many Relationships
+
+For one-to-many relationships, define cascade behavior based on dependency:
+
+```python
+# Parent model with cascade delete
+children: Mapped[list["Child"]] = relationship(
+    "Child",
+    back_populates="parent",
+    cascade="all, delete-orphan"
+)
+
+# Child model with indexed foreign key
+parent_id: Mapped[int] = mapped_column(
+    BigInteger,
+    ForeignKey("parents.id", ondelete="CASCADE"),
+    index=True
+)
+```
+
+### Profile Management Pattern
+
+For models that track profile data with history:
+
+1. Main profile table with current state
+2. History table for tracking changes
+3. Template table for reusable profiles
+
+Example:
+```python
+class Profile(Base):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), unique=True)
+    template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("templates.id"),
+        nullable=True
+    )
+
+    # Current state fields
+    is_synced: Mapped[bool] = mapped_column(default=False)
+    last_synced_at: Mapped[DateTimeType]
+
+    # History tracking
+    history: Mapped[list["ProfileHistory"]] = relationship(
+        cascade="all, delete-orphan"
+    )
+
+class ProfileHistory(Base):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        index=True
+    )
+    change_type: Mapped[str] = mapped_column(String)
+```
+
+### Performance Optimization
+
+1. **Indexes**
+   - Add indexes on all foreign key columns
+   - Add unique constraints where appropriate
+   - Add composite indexes for frequently queried combinations
+   - Consider partial indexes for filtered queries
+
+2. **Lazy Loading**
+   - Use `lazy="selectin"` for small, frequently accessed relationships
+   - Use `lazy="select"` (default) for large or rarely accessed relationships
+   - Use `lazy="dynamic"` for relationships that need custom filtering
+   - Use `lazy="noload"` for relationships that are rarely needed
+
+3. **Batch Operations**
+   - Use `session.bulk_save_objects()` for multiple inserts
+   - Use `session.bulk_update_mappings()` for multiple updates
+   - Consider using `yield_per()` for large result sets
+
+4. **Cascade Behavior**
+   - Use `cascade="all, delete-orphan"` for dependent relationships
+   - Use `cascade="save-update"` with `passive_deletes=True` for many-to-many
+   - Add `ondelete="CASCADE"` to foreign keys for DB-level cascades
+
+## Query Patterns
+
+### Using the with_queries Decorator
+
+All database operations should use the `with_queries` decorator to ensure proper session handling:
+
+```python
+@with_queries(AccountQueries)
+async def get_account(self, account_id: int, queries: AccountQueries) -> Optional[Account]:
+    return await queries.get_by_id(account_id)
+```
+
+### SQL Comments
+
+SQL comments should be in English and describe the purpose of complex queries:
+
+```sql
+-- Get active accounts with message count in last 24 hours
+SELECT a.*, COUNT(m.id) as message_count
+FROM accounts a
+LEFT JOIN messages m ON m.account_id = a.id
+WHERE a.is_active = true
+AND m.created_at >= NOW() - INTERVAL '24 hours'
+GROUP BY a.id
+```
+
+## Testing
+
+1. Use fixtures for database setup
+2. Clean up test data after each test
+3. Use transactions to isolate test cases
+4. Mock external dependencies
+
+## Migration Guidelines
+
+1. Always create new migrations for schema changes
+2. Include both upgrade and downgrade paths
+3. Test migrations with real data samples
+4. Document breaking changes

@@ -118,6 +118,11 @@ class ProfileQueries(db.BaseQueries):
         await self.session.flush()
         return True
 
+    @db.decorators.handle_sql_error("get_template")
+    async def get_template(self, template_id: int) -> Optional[models.ProfileTemplate]:
+        """Get profile template by ID."""
+        return await self.session.get(models.ProfileTemplate, template_id)
+
     # Factory Methods
     @staticmethod
     def _create_profile_obj(account_id: int) -> models.AccountProfile:

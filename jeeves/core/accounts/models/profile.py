@@ -55,6 +55,7 @@ class ProfileTemplate(Base):
         "AccountProfile",
         back_populates="template",
         foreign_keys="AccountProfile.template_id",
+        cascade="all",
     )
     source_account: Mapped[Optional["Account"]] = relationship(
         "Account", foreign_keys=[source_account_id]
@@ -72,10 +73,10 @@ class AccountProfile(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     account_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("accounts.id"), unique=True
+        BigInteger, ForeignKey("accounts.id"), unique=True, index=True
     )
     template_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, ForeignKey("profile_templates.id"), nullable=True
+        BigInteger, ForeignKey("profile_templates.id"), nullable=True, index=True
     )
 
     # Current profile data from Telegram
@@ -139,7 +140,7 @@ class ProfileHistory(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     profile_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("account_profiles.id")
+        BigInteger, ForeignKey("account_profiles.id", ondelete="CASCADE"), index=True
     )
 
     # Profile state at the time
@@ -151,11 +152,12 @@ class ProfileHistory(Base):
 
     # Change metadata
     template_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, ForeignKey("profile_templates.id"), nullable=True
+        BigInteger,
+        ForeignKey("profile_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
-    change_type: Mapped[str] = mapped_column(
-        String
-    )  # template_applied, manual_update, telegram_sync
+    change_type: Mapped[str] = mapped_column(String)
 
     # Timestamps
     created_at: Mapped[TimestampType]
@@ -163,9 +165,11 @@ class ProfileHistory(Base):
 
     # Relationships
     profile: Mapped["AccountProfile"] = relationship(
-        "AccountProfile", back_populates="history"
+        "AccountProfile", back_populates="history", lazy="selectin"
     )
-    template: Mapped[Optional["ProfileTemplate"]] = relationship("ProfileTemplate")
+    template: Mapped[Optional["ProfileTemplate"]] = relationship(
+        "ProfileTemplate", lazy="selectin"
+    )
 
     def __str__(self) -> str:
         """String representation."""

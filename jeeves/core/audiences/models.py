@@ -2,9 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from core.campaigns.models import Campaign
 from core.db import Base
-from core.db.tables import campaigns_audiences
 from sqlalchemy import BigInteger, Boolean, Column, DateTime
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy import ForeignKey, String, Table, Text
@@ -20,12 +18,24 @@ class AudienceStatus(str, Enum):
     error = "error"
 
 
-# Many-to-many для контактов
+# Many-to-many for contacts
 audiences_contacts = Table(
     "audiences_contacts",
     Base.metadata,
-    Column("audience_id", BigInteger, ForeignKey("audiences.id"), primary_key=True),
-    Column("contact_id", BigInteger, ForeignKey("contacts.id"), primary_key=True),
+    Column(
+        "audience_id",
+        BigInteger,
+        ForeignKey("audiences.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    ),
+    Column(
+        "contact_id",
+        BigInteger,
+        ForeignKey("contacts.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    ),
 )
 
 
@@ -40,9 +50,12 @@ class Contact(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(255))
     is_valid: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # Связи
+    # Relationships
     audiences: Mapped[List["Audience"]] = relationship(
-        secondary=audiences_contacts, back_populates="contacts", lazy="selectin"
+        secondary=audiences_contacts,
+        back_populates="contacts",
+        lazy="selectin",
+        passive_deletes=True,
     )
 
     # Timestamps
@@ -66,15 +79,12 @@ class Audience(Base):
         SQLEnum(AudienceStatus, name="audience_status")
     )
 
-    # Связи
+    # Relationships
     contacts: Mapped[List[Contact]] = relationship(
-        secondary=audiences_contacts, back_populates="audiences", lazy="noload"
-    )
-    campaigns: Mapped[List["Campaign"]] = relationship(
-        "Campaign",
-        secondary=campaigns_audiences,
+        secondary=audiences_contacts,
         back_populates="audiences",
-        lazy="noload",
+        lazy="selectin",
+        passive_deletes=True,
     )
 
     # Timestamps

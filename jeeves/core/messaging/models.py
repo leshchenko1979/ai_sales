@@ -28,9 +28,11 @@ class Dialog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str] = mapped_column(String)
-    account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("accounts.id"))
+    account_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("accounts.id"), index=True
+    )
     campaign_id: Mapped[Optional[int]] = mapped_column(
-        BigInteger, ForeignKey("campaigns.id"), nullable=True
+        BigInteger, ForeignKey("campaigns.id"), nullable=True, index=True
     )
     last_message_at: Mapped[DateTimeType]
     is_active: Mapped[bool] = mapped_column(default=True)
@@ -48,6 +50,7 @@ class Dialog(Base):
         back_populates="dialog",
         lazy="selectin",
         order_by="Message.timestamp",
+        cascade="all, delete-orphan",
     )
     account: Mapped["Account"] = relationship(
         "Account", back_populates="dialogs", lazy="selectin"
@@ -80,7 +83,9 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    dialog_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("dialogs.id"))
+    dialog_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("dialogs.id"), index=True
+    )
     direction: Mapped[MessageDirection] = mapped_column(SQLEnum(MessageDirection))
     content: Mapped[str] = mapped_column(String)
     timestamp: Mapped[TimestampType] = mapped_column(default=utcnow)

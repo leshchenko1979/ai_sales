@@ -1,8 +1,9 @@
 from typing import List, Optional
 
 from core.audiences.models import Audience, AudienceStatus, Contact
+from core.campaigns.models import Campaign
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 
 class AudienceQueries:
@@ -15,13 +16,14 @@ class AudienceQueries:
     async def create_audience(
         self,
         name: str,
-        company_id: int,
         description: Optional[str] = None,
         status: AudienceStatus = AudienceStatus.new,
     ) -> Audience:
         """Create new audience."""
         audience = Audience(
-            name=name, company_id=company_id, description=description, status=status
+            name=name,
+            description=description,
+            status=status,
         )
         self.session.add(audience)
         await self.session.flush()
@@ -33,9 +35,20 @@ class AudienceQueries:
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_company_audiences(self, company_id: int) -> List[Audience]:
-        """Get all company audiences."""
-        query = select(Audience).where(Audience.company_id == company_id)
+    async def get_campaign_audiences(self, campaign_id: int) -> List[Audience]:
+        """Get all audiences for a campaign."""
+        query = (
+            select(Campaign)
+            .options(joinedload(Campaign.audiences))
+            .where(Campaign.id == campaign_id)
+        )
+        result = await self.session.execute(query)
+        campaign = result.unique().scalar_one_or_none()
+        return campaign.audiences if campaign else []
+
+    async def get_available_audiences(self) -> List[Audience]:
+        """Get all available audiences."""
+        query = select(Audience).where(Audience.status == AudienceStatus.ready)
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
